@@ -185,8 +185,14 @@ MIGRATE_FN = """
     // названием. Каталог и имена файлов конфигурации берутся из названия
     // продукта, поэтому без переноса у каждой машины сменился бы ID — он
     // лежит в этом же конфиге.
+    //
+    // Имён проверяем несколько: у одних машин стоял безымянный RustDesk, у
+    // других — уже переименованная сборка. Если своя конфигурация уже есть
+    // (в том числе от сборки с тем же именем), не делаем ничего: на Windows
+    // имена каталогов и файлов регистронезависимы, старый каталог подхватится
+    // сам.
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    pub fn migrate_from(legacy_app_name: &str) {
+    pub fn migrate_from_any(legacy_app_names: &[&str]) {
         fn copy_dir(from: &Path, to: &Path, legacy: &str, current: &str) {
             if std::fs::create_dir_all(to).is_err() {
                 return;
@@ -211,29 +217,37 @@ MIGRATE_FN = """
             }
         }
 
-        let current = APP_NAME.read().unwrap().clone();
-        if current == legacy_app_name {
-            return;
+        fn config_dir_for(app_name: &str, current: &str) -> PathBuf {
+            *APP_NAME.write().unwrap() = app_name.to_owned();
+            let dir = Config::path("");
+            *APP_NAME.write().unwrap() = current.to_owned();
+            dir
         }
+
+        let current = APP_NAME.read().unwrap().clone();
         let new_dir = Self::path("");
         if new_dir.as_os_str().is_empty() {
             return;
         }
-        // Уже переносили или клиент не первый раз запускается.
+        // Своя конфигурация уже на месте — переносить нечего.
         if new_dir.join(format!("{}.toml", current)).exists() {
             return;
         }
-        let legacy_dir = {
-            *APP_NAME.write().unwrap() = legacy_app_name.to_owned();
-            let dir = Self::path("");
-            *APP_NAME.write().unwrap() = current.clone();
-            dir
-        };
-        if legacy_dir == new_dir || !legacy_dir.is_dir() {
+        for legacy in legacy_app_names {
+            if legacy.eq_ignore_ascii_case(&current) {
+                continue;
+            }
+            let legacy_dir = config_dir_for(legacy, &current);
+            if legacy_dir == new_dir || !legacy_dir.is_dir() {
+                continue;
+            }
+            if !legacy_dir.join(format!("{}.toml", legacy)).exists() {
+                continue;
+            }
+            log::info!("migrating config from {:?} to {:?}", legacy_dir, new_dir);
+            copy_dir(&legacy_dir, &new_dir, legacy, &current);
             return;
         }
-        log::info!("migrating config from {:?} to {:?}", legacy_dir, new_dir);
-        copy_dir(&legacy_dir, &new_dir, legacy_app_name, &current);
     }
 
 """
@@ -259,12 +273,14 @@ def add_config_migration(config_path: Path, core_main_path: Path, legacy: str) -
         raise SystemExit(
             f"{core_main_path}: не найден вызов load_custom_client — обновите скрипт."
         )
-    if "migrate_from(" not in source:
+    if "migrate_from_any(" not in source:
         source = source.replace(
             call_anchor,
             call_anchor
             + "\n    #[cfg(not(any(target_os = \"android\", target_os = \"ios\")))]\n"
-            f'    hbb_common::config::Config::migrate_from("{legacy}");',
+            + "    hbb_common::config::Config::migrate_from_any(&["
+            + ", ".join(f'"{name}"' for name in legacy.split(","))
+            + "]);",
             1,
         )
         core_main_path.write_text(source, encoding="utf-8")
@@ -747,8 +763,8 @@ def main() -> int:
     parser.add_argument("--app-name", default="RemIT")
     parser.add_argument(
         "--legacy-app-name",
-        default="RustDesk",
-        help="Название клиента, который стоял раньше: его настройки переносим",
+        default="RustDesk,AvitoDoc",
+        help="Через запятую: названия прошлых клиентов, чьи настройки переносим",
     )
     parser.add_argument("--id-server", default="remit.su")
     parser.add_argument("--relay-server", default="remit.su")
