@@ -1,0 +1,154 @@
+@import 'tailwindcss';
+/* Inter лежит рядом с сайтом: без внешних CDN и без зависимости от того,
+   установлен ли шрифт у посетителя. Лицензия — public/fonts/OFL.txt. */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+
+/*
+ * Дизайн-система RemIT. Тёмная тема — один слой фона, один слой
+ * поверхности и акцентный градиент. Все цвета заданы токенами, чтобы
+ * перекрасить продукт можно было в одном месте.
+ */
+@theme {
+  --color-ink-950: #0c0e10;
+  --color-ink-900: #111316;
+  --color-ink-850: #15181c;
+  --color-ink-800: #1a1d21;
+  --color-ink-700: #22262b;
+  --color-ink-600: #2e333a;
+
+  --color-brand-600: #0d9488;
+  --color-brand-500: #14b8a6;
+  --color-brand-400: #2dd4bf;
+  --color-cyan-accent: #5eead4;
+
+  --color-text-primary: #e9ecef;
+  --color-text-secondary: #a8b0ba;
+  --color-text-muted: #7c8792;
+
+  --color-success: #35d39a;
+  --color-warning: #f7bf4a;
+  --color-danger: #fb6f6f;
+
+  --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  --radius-card: 20px;
+}
+
+@layer base {
+  * {
+    border-color: color-mix(in oklab, var(--color-text-primary) 10%, transparent);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    color-scheme: dark;
+  }
+
+  body {
+    /* Ни одна страница не должна прокручиваться вбок на телефоне. */
+    overflow-x: clip;
+    background-color: var(--color-ink-950);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand-500) 45%, transparent);
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  /* Мягкое свечение за героем и ключевыми блоками. */
+  .glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(600px 320px at 15% 0%, color-mix(in oklab, var(--color-brand-500) 28%, transparent), transparent 70%),
+      radial-gradient(520px 300px at 85% 10%, color-mix(in oklab, var(--color-cyan-accent) 18%, transparent), transparent 70%);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--color-text-primary) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-text-primary) 5%, transparent) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  .card {
+    border-radius: var(--radius-card);
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-ink-800) 92%, transparent),
+      color-mix(in oklab, var(--color-ink-900) 96%, transparent)
+    );
+    border: 1px solid color-mix(in oklab, var(--color-text-primary) 8%, transparent);
+  }
+
+  .card-hover {
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card-hover:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklab, var(--color-brand-500) 45%, transparent);
+    box-shadow: 0 18px 40px -24px color-mix(in oklab, var(--color-brand-500) 80%, transparent);
+  }
+
+  .text-gradient {
+    background: linear-gradient(120deg, var(--color-text-primary) 15%, var(--color-brand-400) 60%, var(--color-cyan-accent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--color-text-primary) 12%, transparent);
+    background: color-mix(in oklab, var(--color-ink-800) 70%, transparent);
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+}

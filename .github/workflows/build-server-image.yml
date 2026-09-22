@@ -1,0 +1,148 @@
+name: Сборка образа сервера RemIT
+
+# Собирает hbbs, hbbr и панель rustdesk-api со встроенной проверкой суточного
+# лимита и публикует приватный образ в GitHub Container Registry.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/build-server-image.yml
+      - client/patches/hbbs-quota-hook.py
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/rustdesk-server-s6-remit
+
+jobs:
+  build-amd64:
+    name: linux/amd64
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Получить этот репозиторий
+        uses: actions/checkout@v4
+        with:
+          path: remit
+
+      - name: Получить rustdesk-api
+        uses: actions/checkout@v4
+        with:
+          repository: lejianwen/rustdesk-api
+          ref: master
+          path: rustdesk-api
+
+      - name: Получить веб-интерфейс панели
+        uses: actions/checkout@v4
+        with:
+          repository: lejianwen/rustdesk-api-web
+          ref: master
+          path: rustdesk-api-web
+
+      - name: Получить rustdesk-server (ветка forapi)
+        uses: actions/checkout@v4
+        with:
+          repository: lejianwen/rustdesk-server
+          ref: forapi
+          submodules: recursive
+          path: rustdesk-server
+
+      - name: Встроить проверку суточного лимита в hbbs
+        run: |
+          python3 remit/client/patches/hbbs-quota-hook.py \
+            rustdesk-server/src/rendezvous_server.rs
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: rustdesk-api-web/package-lock.json
+
+      - name: Собрать веб-интерфейс панели
+        working-directory: rustdesk-api-web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: rustdesk-api/go.sum
+
+      - name: Собрать API панели
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          rm -rf rustdesk-api/resources/admin
+          mkdir -p rustdesk-api/resources/admin
+          cp -a rustdesk-api-web/dist/. rustdesk-api/resources/admin/
+          mkdir -p rustdesk-api/amd64/release/data rustdesk-api/amd64/release/runtime
+          cp -a rustdesk-api/resources rustdesk-api/docs rustdesk-api/conf rustdesk-api/amd64/release/
+          cd rustdesk-api
+          go mod download
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=musl-gcc CGO_LDFLAGS=-static \
+            go build -ldflags "-s -w" -o amd64/release/apimain ./cmd/apimain.go
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+
+      - name: Кэш сборки Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rustdesk-server
+
+      - name: Собрать hbbs, hbbr и rustdesk-utils
+        run: |
+          cargo build --manifest-path rustdesk-server/Cargo.toml \
+            --release --all-features --target=x86_64-unknown-linux-musl
+
+      - name: Разложить бинарники
+        run: |
+          install -m 0755 rustdesk-server/target/x86_64-unknown-linux-musl/release/hbbs \
+            rustdesk-server/docker/rootfs/usr/bin/hbbs
+          install -m 0755 rustdesk-server/target/x86_64-unknown-linux-musl/release/hbbr \
+            rustdesk-server/docker/rootfs/usr/bin/hbbr
+          install -m 0755 rustdesk-server/target/x86_64-unknown-linux-musl/release/rustdesk-utils \
+            rustdesk-server/docker/rootfs/usr/bin/rustdesk-utils
+
+      - name: Собрать базовый образ панели
+        run: docker build --build-arg BUILDARCH=amd64 -f rustdesk-api/Dockerfile -t remit-api:build rustdesk-api
+
+      - name: Использовать панель как основу образа сервера
+        run: sed -i '1c FROM remit-api:build' rustdesk-server/docker/Dockerfile
+
+      - name: Собрать итоговый образ
+        run: |
+          docker build --build-arg S6_ARCH=x86_64 \
+            -t "${IMAGE_NAME}:latest" \
+            -t "${IMAGE_NAME}:${GITHUB_SHA}" \
+            rustdesk-server/docker
+
+      - name: Войти в GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Опубликовать образ
+        run: |
+          docker push "${IMAGE_NAME}:latest"
+          docker push "${IMAGE_NAME}:${GITHUB_SHA}"
+
+      - name: Итог
+        run: |
+          {
+            echo "## Образ сервера RemIT"
+            echo '`${{ env.IMAGE_NAME }}:latest`'
+            echo "Включает проверку суточного лимита перед выдачей соединения."
+            echo "Держите пакет приватным: серверу достаточно права read:packages."
+          } >> "$GITHUB_STEP_SUMMARY"
