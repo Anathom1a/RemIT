@@ -137,9 +137,22 @@ export interface SupportTicket {
   status: TicketStatus
   /** Ответ поддержки — его видит пользователь в кабинете. */
   answer: string
+  /** Снимки экрана и фотографии, приложенные к обращению. */
+  attachments: TicketAttachment[]
   createdAt: string
   updatedAt: string
   answeredAt: string | null
+}
+
+/**
+ * Приложенная к обращению картинка. Имя присваиваем мы сами по настоящему
+ * формату файла, поэтому здесь нет исходного имени из браузера.
+ */
+export interface TicketAttachment {
+  name: string
+  url: string
+  size: number
+  contentType: string
 }
 
 /** Заявка с сайта: пробный период для компании или запрос на подключение. */

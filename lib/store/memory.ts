@@ -81,7 +81,10 @@ export class MemoryStore implements Store {
       this.settings = snapshot.settings ?? {}
       this.releases = new Map(snapshot.releases?.map((r) => [r.id, r]))
       this.leads = new Map(snapshot.leads?.map((l) => [l.id, l]))
-      this.tickets = new Map(snapshot.tickets?.map((t) => [t.id, t]))
+      // attachments появились позже: у старых записей поля нет.
+      this.tickets = new Map(
+        snapshot.tickets?.map((t) => [t.id, { ...t, attachments: t.attachments ?? [] }]),
+      )
       this.loadedMtimeMs = mtimeMs
     } catch {
       // Файл повреждён или пишется прямо сейчас — оставляем текущее состояние.

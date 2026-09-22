@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { ActionButton } from '@/components/admin/action-button'
 import { TicketAnswer } from '@/components/admin/ticket-answer'
+import { TicketAttachments } from '@/components/site/ticket-attachments'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
 import type { TicketStatus } from '@/lib/types'
@@ -73,6 +74,7 @@ export default async function AdminTicketsPage() {
               <p className="mt-4 whitespace-pre-line rounded-xl border border-white/8 bg-ink-850/50 p-4 text-sm leading-relaxed text-text-secondary">
                 {ticket.message}
               </p>
+              <TicketAttachments attachments={ticket.attachments} />
 
               <div className="mt-5 space-y-3 border-t border-white/8 pt-4">
                 <TicketAnswer ticketId={ticket.id} answer={ticket.answer} />

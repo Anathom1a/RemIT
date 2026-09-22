@@ -129,6 +129,12 @@ export const config = {
     maxUploadBytes: envInt('REMIT_MAX_UPLOAD_BYTES', 1024 * 1024 * 1024),
     /** Запасной вариант: раздача сборок из внешнего хранилища. */
     downloadsBase: env('REMIT_DOWNLOADS_BASE'),
+    /** Каталог со снимками экрана, приложенными к обращениям в поддержку. */
+    attachmentsDir: env('REMIT_ATTACHMENTS_DIR', 'data/attachments'),
+    /** Максимальный размер одного снимка экрана, байты. */
+    maxAttachmentBytes: envInt('REMIT_MAX_ATTACHMENT_BYTES', 10 * 1024 * 1024),
+    /** Сколько файлов принимаем к одному обращению. */
+    maxAttachmentsPerTicket: envInt('REMIT_MAX_ATTACHMENTS', 5),
   },
 
   database: {

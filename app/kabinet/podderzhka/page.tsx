@@ -1,7 +1,9 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { SupportForm } from '@/components/site/support-form'
+import { TicketAttachments } from '@/components/site/ticket-attachments'
 import { getCurrentUser } from '@/lib/auth'
+import { config } from '@/lib/config'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
 import type { TicketStatus } from '@/lib/types'
@@ -42,7 +44,10 @@ export default async function SupportPage() {
 
       <div className="card p-6">
         <h2 className="mb-4 font-semibold">Новое обращение</h2>
-        <SupportForm />
+        <SupportForm
+          maxFiles={config.storage.maxAttachmentsPerTicket}
+          maxBytes={config.storage.maxAttachmentBytes}
+        />
       </div>
 
       <div className="card overflow-hidden">
@@ -67,6 +72,7 @@ export default async function SupportPage() {
                   </span>
                 </div>
                 <p className="mt-3 whitespace-pre-line text-sm text-text-secondary">{ticket.message}</p>
+                <TicketAttachments attachments={ticket.attachments} />
                 {ticket.answer ? (
                   <div className="mt-4 rounded-xl border border-brand-500/30 bg-ink-850/60 p-4">
                     <p className="text-xs uppercase tracking-wide text-text-muted">Ответ поддержки</p>

@@ -545,11 +545,13 @@ export class PostgresStore implements Store {
 
   async saveTicket(ticket: SupportTicket): Promise<void> {
     await this.query(
-      `INSERT INTO support_tickets (id, user_id, subject, message, status, answer, created_at, updated_at, answered_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO support_tickets
+         (id, user_id, subject, message, status, answer, attachments, created_at, updated_at, answered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          answer = EXCLUDED.answer,
+         attachments = EXCLUDED.attachments,
          updated_at = EXCLUDED.updated_at,
          answered_at = EXCLUDED.answered_at`,
       [
@@ -559,6 +561,7 @@ export class PostgresStore implements Store {
         ticket.message,
         ticket.status,
         ticket.answer,
+        JSON.stringify(ticket.attachments ?? []),
         ticket.createdAt,
         ticket.updatedAt,
         ticket.answeredAt,
@@ -602,6 +605,7 @@ export class PostgresStore implements Store {
       message: row.message,
       status: row.status,
       answer: row.answer,
+      attachments: row.attachments ?? [],
       createdAt: iso(row.created_at)!,
       updatedAt: iso(row.updated_at)!,
       answeredAt: iso(row.answered_at),

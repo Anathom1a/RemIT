@@ -147,6 +147,8 @@ CREATE TABLE IF NOT EXISTS support_tickets (
     message     TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'new',
     answer      TEXT NOT NULL DEFAULT '',
+    -- Снимки экрана: имя, адрес, размер и тип. Файлы лежат на диске.
+    attachments JSONB NOT NULL DEFAULT '[]'::jsonb,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     answered_at TIMESTAMPTZ
@@ -154,3 +156,7 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 
 CREATE INDEX IF NOT EXISTS support_tickets_user_idx ON support_tickets (user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS support_tickets_status_idx ON support_tickets (status, created_at DESC);
+
+-- Схема применяется при каждом старте, поэтому добавленные позже столбцы
+-- дописываем отдельно: CREATE TABLE IF NOT EXISTS уже созданную не тронет.
+ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;

@@ -1,10 +1,13 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { headers } from 'next/headers'
 import { SiteHeader } from '@/components/site/header'
 import { SiteFooter } from '@/components/site/footer'
 import { ButtonLink } from '@/components/ui/button'
 import { config } from '@/lib/config'
-import { getLatestRelease, pickFile } from '@/lib/updates'
+import { buildPlatforms, detectOs, formatSize } from '@/lib/downloads'
+import type { PlatformDownloads } from '@/lib/downloads'
+import { getLatestRelease } from '@/lib/updates'
 import { formatDate } from '@/lib/time'
 import { pageMetadata } from '@/lib/seo'
 
@@ -23,58 +26,64 @@ export const metadata: Metadata = pageMetadata({
   ],
 })
 
-/** Из подписи карточки («Windows 10/11») получаем ключ платформы. */
-function osKey(title: string): string {
-  const value = title.toLowerCase()
-  if (value.includes('windows')) return 'windows'
-  if (value.includes('mac')) return 'macos'
-  if (value.includes('linux')) return 'linux'
-  if (value.includes('android')) return 'android'
-  return value
+function PlatformIcon({ path, className = 'size-6' }: { path: string; className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className}>
+      <path d={path} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
-const BUILDS = [
-  {
-    os: 'Windows 10/11',
-    note: 'Установщик и портативная версия, x64',
-    file: 'RemIT-Setup-x64.exe',
-    icon: 'M3 5.5 10 4.6v6.4H3zM11.5 4.4 21 3v8h-9.5zM3 12.9h7v6.4L3 18.4zM11.5 12.9H21V21l-9.5-1.4z',
-  },
-  {
-    os: 'macOS 12+',
-    note: 'Universal: Apple Silicon и Intel',
-    file: 'RemIT.dmg',
-    icon: 'M12 7c1-2 3-3 4-3 .2 2-1 4-2 5M7 20c-2-3-3-8 0-10 1.5-1 3 0 4 0s2.5-1 4 0c3 2 2 7 0 10-1 1.5-2 1-3 1s-2 .5-3-1Z',
-  },
-  {
-    os: 'Linux',
-    note: 'deb, rpm и AppImage',
-    file: 'remit_amd64.deb',
-    icon: 'M12 3c3 0 4 3 4 6 0 3 3 5 3 8s-3 4-7 4-7-1-7-4 3-5 3-8c0-3 1-6 4-6Z',
-  },
-  {
-    os: 'Android и iOS',
-    note: 'Управление с телефона и планшета',
-    file: 'RemIT.apk',
-    icon: 'M7 3h10v18H7zM11 18h2',
-  },
-]
+/** Карточка платформы со всеми вариантами файлов. */
+function PlatformCard({ platform, primary }: { platform: PlatformDownloads; primary?: boolean }) {
+  return (
+    <div className={`card p-5 sm:p-6 ${primary ? 'border-brand-500/35' : ''}`}>
+      <div className="flex items-center gap-4">
+        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-500/12 text-brand-400">
+          <PlatformIcon path={platform.icon} />
+        </div>
+        <div className="min-w-0">
+          <h2 className="font-semibold">{platform.title}</h2>
+          <p className="mt-1 text-sm text-text-muted">{platform.note}</p>
+        </div>
+      </div>
+
+      <ul className="mt-5 space-y-2">
+        {platform.options.map((option, index) => (
+          <li
+            key={option.url}
+            className="flex flex-wrap items-center gap-3 rounded-xl border border-white/8 bg-ink-850/50 p-3"
+          >
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-text-primary">{option.label}</p>
+              <p className="mt-0.5 break-all font-mono text-xs text-text-muted">
+                {option.fileName}
+                {option.size ? ` · ${formatSize(option.size)}` : ''}
+              </p>
+            </div>
+            <ButtonLink
+              href={option.url}
+              variant={primary && index === 0 ? 'primary' : 'secondary'}
+              size="sm"
+              className="w-full sm:w-auto"
+            >
+              Скачать
+            </ButtonLink>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
 
 export default async function DownloadPage() {
   // Если выпуск опубликован в админке, страница раздаёт его файлы.
   const release = await getLatestRelease({ channel: 'stable' })
+  const platforms = buildPlatforms(release)
 
-  /** Ссылка на файл из опубликованного выпуска, иначе — на маршрут загрузок. */
-  function downloadHref(os: string, fallbackFile: string): string {
-    const file = release ? pickFile(release, osKey(os)) : null
-    return file?.url ?? `/api/download/${fallbackFile}`
-  }
-
-  function fileName(os: string, fallbackFile: string): string {
-    const file = release ? pickFile(release, osKey(os)) : null
-    if (!file) return fallbackFile
-    return file.url.split('/').pop() || fallbackFile
-  }
+  const detected = detectOs((await headers()).get('user-agent') ?? '')
+  const mine = platforms.find((platform) => platform.os === detected)
+  const others = platforms.filter((platform) => platform !== mine)
 
   return (
     <>
@@ -99,40 +108,41 @@ export default async function DownloadPage() {
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-5 py-16">
-          <div className="grid gap-5 md:grid-cols-2">
-            {BUILDS.map((build) => (
-              <div
-                key={build.os}
-                className="card card-hover flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:gap-5 sm:p-6"
-              >
-                <div className="flex min-w-0 flex-1 items-center gap-4">
-                  <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-500/12 text-brand-400">
-                    <svg viewBox="0 0 24 24" fill="none" className="size-6">
-                      <path d={build.icon} stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-                    </svg>
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className="font-semibold">{build.os}</h2>
-                    <p className="mt-1 text-sm text-text-muted">
-                      {build.note}
-                      <span className="block break-all font-mono text-xs sm:inline sm:before:content-['_·_']">
-                        {fileName(build.os, build.file)}
-                      </span>
-                    </p>
-                  </div>
-                </div>
-                <ButtonLink
-                  href={downloadHref(build.os, build.file)}
-                  variant="secondary"
-                  size="sm"
-                  className="w-full sm:w-auto"
-                >
-                  Скачать
-                </ButtonLink>
-              </div>
-            ))}
-          </div>
+        <section className="mx-auto max-w-3xl px-5 py-16">
+          {mine ? (
+            <>
+              <p className="mb-4 text-sm text-text-secondary">
+                Похоже, у вас {mine.title.split(' ')[0]} — предлагаем эту сборку. Если система другая,
+                разверните список ниже.
+              </p>
+              <PlatformCard platform={mine} primary />
+            </>
+          ) : (
+            <p className="card p-6 text-sm text-text-secondary">
+              Для iPhone и iPad отдельной сборки пока нет: подключайтесь с компьютера, а к самим
+              мобильным устройствам — через клиент на другой стороне. Сборки для остальных систем
+              ниже.
+            </p>
+          )}
+
+          <details className="group mt-6">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 rounded-xl border border-white/10 bg-ink-850/50 px-5 py-3.5 text-sm text-text-secondary transition-colors hover:border-white/20 hover:text-text-primary">
+              <span>Скачать для другой системы</span>
+              <span className="flex items-center gap-2 text-text-muted">
+                {others.map((platform) => (
+                  <PlatformIcon key={platform.os} path={platform.icon} className="size-4" />
+                ))}
+                <svg viewBox="0 0 24 24" fill="none" className="size-4 transition-transform group-open:rotate-180">
+                  <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            </summary>
+            <div className="mt-4 space-y-4">
+              {others.map((platform) => (
+                <PlatformCard key={platform.os} platform={platform} />
+              ))}
+            </div>
+          </details>
 
           <div className="card mt-10 p-8">
             <h2 className="text-xl font-semibold">Настройки для ручной конфигурации</h2>
@@ -156,14 +166,14 @@ export default async function DownloadPage() {
           </div>
 
           {!release && (
-          <div className="mt-10 rounded-2xl border border-warning/25 bg-warning/5 p-6">
-            <h2 className="font-semibold text-warning">Перед публикацией сборок</h2>
-            <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-              Загрузите сборки в админке (раздел «Обновления») — они лягут на этот сервер, и ссылки на
-              этой странице заработают автоматически. Порядок сборки фирменного клиента описан в{' '}
-              <code className="font-mono">client/README.md</code> репозитория.
-            </p>
-          </div>
+            <div className="mt-10 rounded-2xl border border-warning/25 bg-warning/5 p-6">
+              <h2 className="font-semibold text-warning">Перед публикацией сборок</h2>
+              <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+                Загрузите сборки в админке (раздел «Обновления») — они лягут на этот сервер, и ссылки на
+                этой странице заработают автоматически. Порядок сборки фирменного клиента описан в{' '}
+                <code className="font-mono">client/README.md</code> репозитория.
+              </p>
+            </div>
           )}
         </section>
       </main>

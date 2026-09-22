@@ -72,6 +72,8 @@ services:
     volumes:
       # Загруженные в админке сборки клиента переживают пересоздание контейнера.
       - ./data/releases:/app/data/releases
+      # Снимки экрана, приложенные к обращениям в поддержку.
+      - ./data/attachments:/app/data/attachments
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://${POSTGRES_USER:-remit}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remit}
@@ -86,8 +88,11 @@ services:
       - REMIT_ADMIN_EMAILS=${REMIT_ADMIN_EMAILS:-}
       - REMIT_RELEASES_DIR=/app/data/releases
       - REMIT_MAX_UPLOAD_BYTES=${REMIT_MAX_UPLOAD_BYTES:-1073741824}
+      - REMIT_ATTACHMENTS_DIR=/app/data/attachments
+      - REMIT_MAX_ATTACHMENT_BYTES=${REMIT_MAX_ATTACHMENT_BYTES:-10485760}
+      - REMIT_MAX_ATTACHMENTS=${REMIT_MAX_ATTACHMENTS:-5}
       - REMIT_FREE_SECONDS_PER_DAY=${REMIT_FREE_SECONDS_PER_DAY:-10800}
-      - REMIT_SUPPORT_URL=${REMIT_SUPPORT_URL:-https://t.me/Mrdikpic}
+      - REMIT_SUPPORT_URL=${REMIT_SUPPORT_URL:-https://${PUBLIC_DOMAIN}/kabinet/podderzhka}
       - REMIT_SUPPORT_EMAIL=${REMIT_SUPPORT_EMAIL:-support@remit.su}
       - REMIT_SALES_EMAIL=${REMIT_SALES_EMAIL:-sales@remit.su}
       - REMIT_YANDEX_VERIFICATION=${REMIT_YANDEX_VERIFICATION:-}
