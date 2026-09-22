@@ -1,55 +1,48 @@
-<div align="center">
-  <img src="https://raw.githubusercontent.com/rustdesk/rustdesk/master/res/96x96%402x.png" width="100" height="100">
-  <h1>Сервер удаленной поддержки</h1>
-  <p><b>Официальный узел мониторинга и администрирования</b></p>
+# RemIT — удалённый доступ и поддержка
 
-  <p>
-    <img src="https://img.shields.io/badge/Статус-Защищено-success?style=flat-square&logo=shield" alt="Security">
-    <img src="https://img.shields.io/badge/Доступ-Приватный-blue?style=flat-square" alt="Access">
-    <img src="https://img.shields.io/badge/Локация-Berdsk-orange?style=flat-square" alt="Location">
-  </p>
-</div>
+Сервис удалённого доступа на собственной инфраструктуре: клиент для Windows,
+macOS и Linux, свой сервер связи, личный кабинет, подписки и сервер обновлений.
 
----
+Сайт: **[remit.su](https://remit.su)**
 
-## 🛡️ Безопасность и конфиденциальность
-Данная инфраструктура развернута на выделенном сервере для обеспечения максимальной скорости и безопасности при оказании технической поддержки.
+## Что внутри
 
-* **End-to-End Encryption:** Все сессии защищены сквозным шифрованием (RSA-2048/AES-256).
-* **Self-Hosted:** Трафик не проходит через зарубежные или публичные серверы RustDesk.
-* **Контроль доступа:** Подключение возможно только при наличии индивидуального ключа безопасности.
+| Каталог | Что там |
+|---|---|
+| `app/`, `components/`, `lib/` | сайт, личный кабинет и API (Next.js) |
+| `server/` | docker-compose, nginx, схема базы, разворачивание |
+| `client/` | брендирование клиента RustDesk и сборка в GitHub Actions |
+| `docs/` | архитектура, тарификация, оплата, развёртывание, SEO |
 
----
+## Как это работает
 
-## 💻 Инструкция для клиента
+Ядро удалённого доступа — открытый [RustDesk](https://github.com/rustdesk/rustdesk)
+под лицензией AGPL-3.0. Мы берём его, вшиваем свои серверы и оформление и
+добавляем то, чего в нём нет: учёт времени, подписки, личный кабинет и свой
+сервер обновлений.
 
-Чтобы предоставить доступ к вашему рабочему столу, выполните следующие действия:
+Учёт бесплатного времени построен на штатном механизме RustDesk: шлюз перед
+`/api/heartbeat` считает время активных сессий и при исчерпании лимита
+возвращает клиенту список подключений на разрыв. Патчить клиент ради этого не
+нужно — подробности в `docs/ARCHITECTURE.md` и `docs/QUOTA.md`.
 
-1. **Скачайте клиент*:
+## Сборка клиента
 
-windows x86-32(https://github.com/AlexeiChuev/AVITODOC/releases/download/RUSTDESKBASE/RustDesk.exe)
+Клиент собирается в GitHub Actions форка RustDesk — Windows, macOS и Linux за
+один прогон. Порядок действий: `docs/BUILD-CLIENT.md`, обвязка форка:
+`client/fork/README.md`.
 
-windows(x32) -
+## Развёртывание
 
-Apple Silicon(m1-m4) -
+```bash
+sudo bash server/deploy.sh
+```
 
-apple(intel i3-i7) -
+Поднимает сервер связи, панель, сайт, базу и nginx. Подробности и настройка
+оплаты — `docs/DEPLOY.md` и `docs/BILLING.md`.
 
-## 🛠️ Техническая информация
-Для обеспечения стабильного соединения используются следующие параметры сети:
-* **Порты:** 21115-21119 (TCP/UDP)
-* **Протокол:** RustDesk Relay Protocol v2
+## Лицензии
 
----
-
-<div align="center">
-  <h3>Техническая поддержка</h3>
-  <p>По всем вопросам настройки и подключения пишите в профильный канал:</p>
-  
-  <a href="https://t.me/debug_mode">
-    <img src="https://img.shields.io/badge/Telegram-debug%20mode-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white" alt="Telegram Support">
-  </a>
-
-  <br><br>
-  <p>Специалист: <b>Alexey Chuev</b></p>
-</div>
+Клиент — производная работа от RustDesk и распространяется под AGPL-3.0:
+исходники правок открыты в форке. Сайт, кабинет и серверная обвязка — наш
+собственный код.

@@ -1,0 +1,123 @@
+@import 'tailwindcss';
+
+/*
+ * Дизайн-система RemIT. Тёмная тема — один слой фона, один слой
+ * поверхности и акцентный градиент. Все цвета заданы токенами, чтобы
+ * перекрасить продукт можно было в одном месте.
+ */
+@theme {
+  --color-ink-950: #05070d;
+  --color-ink-900: #080b14;
+  --color-ink-850: #0b101c;
+  --color-ink-800: #101829;
+  --color-ink-700: #172236;
+  --color-ink-600: #22304a;
+
+  --color-brand-600: #1f5fe0;
+  --color-brand-500: #3b7bfa;
+  --color-brand-400: #5f9bff;
+  --color-cyan-accent: #2fd8e6;
+
+  --color-text-primary: #e9eefb;
+  --color-text-secondary: #a7b4cc;
+  --color-text-muted: #6f7f9b;
+
+  --color-success: #35d39a;
+  --color-warning: #f7bf4a;
+  --color-danger: #fb6f6f;
+
+  --font-sans: 'Inter', 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+
+  --radius-card: 20px;
+}
+
+@layer base {
+  * {
+    border-color: color-mix(in oklab, var(--color-text-primary) 10%, transparent);
+  }
+
+  html {
+    scroll-behavior: smooth;
+    color-scheme: dark;
+  }
+
+  body {
+    /* Ни одна страница не должна прокручиваться вбок на телефоне. */
+    overflow-x: clip;
+    background-color: var(--color-ink-950);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand-500) 45%, transparent);
+  }
+
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer components {
+  /* Мягкое свечение за героем и ключевыми блоками. */
+  .glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      radial-gradient(600px 320px at 15% 0%, color-mix(in oklab, var(--color-brand-500) 28%, transparent), transparent 70%),
+      radial-gradient(520px 300px at 85% 10%, color-mix(in oklab, var(--color-cyan-accent) 18%, transparent), transparent 70%);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, color-mix(in oklab, var(--color-text-primary) 5%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklab, var(--color-text-primary) 5%, transparent) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  }
+
+  .card {
+    border-radius: var(--radius-card);
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-ink-800) 92%, transparent),
+      color-mix(in oklab, var(--color-ink-900) 96%, transparent)
+    );
+    border: 1px solid color-mix(in oklab, var(--color-text-primary) 8%, transparent);
+  }
+
+  .card-hover {
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card-hover:hover {
+    transform: translateY(-2px);
+    border-color: color-mix(in oklab, var(--color-brand-500) 45%, transparent);
+    box-shadow: 0 18px 40px -24px color-mix(in oklab, var(--color-brand-500) 80%, transparent);
+  }
+
+  .text-gradient {
+    background: linear-gradient(120deg, var(--color-text-primary) 15%, var(--color-brand-400) 60%, var(--color-cyan-accent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in oklab, var(--color-text-primary) 12%, transparent);
+    background: color-mix(in oklab, var(--color-ink-800) 70%, transparent);
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8125rem;
+    color: var(--color-text-secondary);
+  }
+}

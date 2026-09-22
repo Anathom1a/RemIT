@@ -1,0 +1,121 @@
+# Полный стек RemIT: сервер идентификации и ретрансляции, панель,
+# сайт с кабинетом и учётом квот, база данных.
+#
+#   docker compose --env-file .env up -d
+#
+# Наружу смотрит только nginx (см. server/nginx/remit.conf).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: remit-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-remit}
+      POSTGRES_USER: ${POSTGRES_USER:-remit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD}
+      TZ: Europe/Moscow
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-remit}']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # hbbs + hbbr + панель rustdesk-api в одном образе (сборка lejianwen).
+  # Для фирменной сборки замените образ на свой приватный из GHCR.
+  rustdesk:
+    image: ${RUSTDESK_IMAGE:-lejianwen/rustdesk-server-s6:latest}
+    container_name: remit-rustdesk
+    ports:
+      - '21115:21115'
+      - '21116:21116'
+      - '21116:21116/udp'
+      - '21117:21117'
+      - '21118:21118'
+      - '21119:21119'
+    expose:
+      - '21114'
+    environment:
+      - RELAY=${PUBLIC_ADDR}:21117
+      - ENCRYPTED_ONLY=1
+      - MUST_LOGIN=${MUST_LOGIN:-N}
+      - TZ=Europe/Moscow
+      - RUSTDESK_API_LANG=ru
+      - RUSTDESK_API_RUSTDESK_ID_SERVER=${PUBLIC_ADDR}:21116
+      - RUSTDESK_API_RUSTDESK_RELAY_SERVER=${PUBLIC_ADDR}:21117
+      - RUSTDESK_API_RUSTDESK_API_SERVER=https://${PUBLIC_DOMAIN}
+      - RUSTDESK_API_APP_TOKEN_EXPIRE=${TOKEN_EXPIRE:-720h}
+      - RUSTDESK_API_JWT_EXPIRE_DURATION=${TOKEN_EXPIRE:-720h}
+      - RUSTDESK_API_KEY_FILE=/data/id_ed25519.pub
+      - RUSTDESK_API_JWT_KEY=${JWT_KEY:?задайте JWT_KEY}
+      - RUSTDESK_API_APP_REGISTER=false
+      # Адрес службы квот: hbbs спрашивает её перед выдачей punch hole.
+      - REMIT_QUOTA_URL=http://web:3000/api/v1/quota/check
+      - REMIT_SERVICE_TOKEN=${REMIT_SERVICE_TOKEN:?задайте REMIT_SERVICE_TOKEN}
+    volumes:
+      - ./data/rustdesk:/data
+      - ./data/rustdesk-api:/app/data
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    container_name: remit-web
+    depends_on:
+      db:
+        condition: service_healthy
+    expose:
+      - '3000'
+    volumes:
+      # Загруженные в админке сборки клиента переживают пересоздание контейнера.
+      - ./data/releases:/app/data/releases
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgres://${POSTGRES_USER:-remit}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remit}
+      - RUSTDESK_API_UPSTREAM=http://rustdesk:21114
+      - REMIT_DOMAIN=${PUBLIC_DOMAIN}
+      - REMIT_ID_SERVER=${PUBLIC_ADDR}:21116
+      - REMIT_RELAY_SERVER=${PUBLIC_ADDR}:21117
+      - REMIT_API_SERVER=https://${PUBLIC_DOMAIN}
+      - REMIT_PUBLIC_KEY=${RUSTDESK_PUBLIC_KEY:-}
+      - REMIT_AUTH_SECRET=${REMIT_AUTH_SECRET:?задайте REMIT_AUTH_SECRET}
+      - REMIT_SERVICE_TOKEN=${REMIT_SERVICE_TOKEN}
+      - REMIT_ADMIN_EMAILS=${REMIT_ADMIN_EMAILS:-}
+      - REMIT_RELEASES_DIR=/app/data/releases
+      - REMIT_MAX_UPLOAD_BYTES=${REMIT_MAX_UPLOAD_BYTES:-1073741824}
+      - REMIT_FREE_SECONDS_PER_DAY=${REMIT_FREE_SECONDS_PER_DAY:-10800}
+      - REMIT_SUPPORT_URL=${REMIT_SUPPORT_URL:-https://t.me/Mrdikpic}
+      - REMIT_SUPPORT_EMAIL=${REMIT_SUPPORT_EMAIL:-support@remit.su}
+      - REMIT_SALES_EMAIL=${REMIT_SALES_EMAIL:-sales@remit.su}
+      - REMIT_YANDEX_VERIFICATION=${REMIT_YANDEX_VERIFICATION:-}
+      - REMIT_GOOGLE_VERIFICATION=${REMIT_GOOGLE_VERIFICATION:-}
+      - REMIT_YANDEX_METRIKA_ID=${REMIT_YANDEX_METRIKA_ID:-}
+      - REMIT_TRIAL_MAX_DAYS=${REMIT_TRIAL_MAX_DAYS:-30}
+      - REMIT_TRIAL_DEFAULT_DAYS=${REMIT_TRIAL_DEFAULT_DAYS:-14}
+      - REMIT_TRIAL_PLAN=${REMIT_TRIAL_PLAN:-pro}
+      - REMIT_TELEGRAM_BOT_TOKEN=${REMIT_TELEGRAM_BOT_TOKEN:-}
+      - REMIT_TELEGRAM_CHAT_ID=${REMIT_TELEGRAM_CHAT_ID:-}
+      - REMIT_BILLING_PROVIDER=${REMIT_BILLING_PROVIDER:-yookassa}
+      - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID:-}
+      - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY:-}
+      - YOOKASSA_RETURN_URL=https://${PUBLIC_DOMAIN}/kabinet/podpiska
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: remit-nginx
+    depends_on:
+      - web
+      - rustdesk
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/remit.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/remit-proxy.inc:/etc/nginx/conf.d/remit-proxy.inc:ro
+      - ./data/certbot/conf:/etc/letsencrypt:ro
+      - ./data/certbot/www:/var/www/certbot:ro
+    restart: unless-stopped
