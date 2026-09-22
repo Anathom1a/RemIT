@@ -10,6 +10,8 @@
 #   REMIT_APP_NAME     название продукта, по умолчанию RemIT
 #   REMIT_ID_SERVER    сервер идентификации, по умолчанию remit.su
 #   REMIT_RELAY_SERVER ретранслятор, по умолчанию remit.su
+#   REMIT_SUPPORT_URL  форма поддержки, по умолчанию <сайт>/kabinet/podderzhka
+#   REMIT_SOURCE_URL   исходники клиента, по умолчанию адрес самого форка
 #   REMIT_TEST_BUILD   true — собрать без ключа, только чтобы посмотреть
 #                          (то же самое — слово test в файле .build-trigger)
 
@@ -26,6 +28,12 @@ APP_NAME="${REMIT_APP_NAME:-RemIT}"
 ID_SERVER="${REMIT_ID_SERVER:-remit.su}"
 RELAY_SERVER="${REMIT_RELAY_SERVER:-remit.su}"
 PUBLIC_KEY="${REMIT_PUBLIC_KEY:-0rexVZoXqaUjnIooWsmVscaVgkfLuxlpY7LN73X4UA0=}"
+# Куда ведёт приглашение написать в поддержку под главным окном.
+SUPPORT_URL="${REMIT_SUPPORT_URL:-${SITE%/}/kabinet/podderzhka}"
+# Ссылка на исходники в окне «О программе»: требование AGPL-3.0. В Actions
+# адрес самого форка известен, вне CI — берём наш репозиторий.
+SOURCE_URL="${REMIT_SOURCE_URL:-${GITHUB_SERVER_URL:+${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}}}"
+SOURCE_URL="${SOURCE_URL:-https://github.com/Anathom1a/rustdesk}"
 
 # Режим сборки. При ручном запуске приходит галочкой, при запуске через
 # .build-trigger берётся из самого файла: слово test в нём означает
@@ -54,12 +62,15 @@ if [[ -z "$PUBLIC_KEY" ]]; then
 fi
 
 echo "==> Брендирование: ${APP_NAME}, ${SITE}, ${ID_SERVER} / ${RELAY_SERVER}"
+echo "==> Поддержка: ${SUPPORT_URL}; исходники: ${SOURCE_URL}"
 python3 "${HERE}/patches/brand-client.py" "$ROOT" \
     --app-name "$APP_NAME" \
     --id-server "$ID_SERVER" \
     --relay-server "$RELAY_SERVER" \
     --api-server "$SITE" \
     --update-url "${SITE%/}/api/version/latest" \
+    --support-url "$SUPPORT_URL" \
+    --source-url "$SOURCE_URL" \
     --public-key "$PUBLIC_KEY" \
     --brand-dir "${HERE}/brand"
 
