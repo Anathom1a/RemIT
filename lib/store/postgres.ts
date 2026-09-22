@@ -7,6 +7,7 @@ import type {
   ConnSession,
   Device,
   Lead,
+  SupportTicket,
   Payment,
   Release,
   Subscription,
@@ -536,5 +537,74 @@ export class PostgresStore implements Store {
       [email.trim().toLowerCase(), since],
     )
     return Number(rows[0]?.count ?? 0)
+  }
+
+  async createTicket(ticket: SupportTicket): Promise<void> {
+    await this.saveTicket(ticket)
+  }
+
+  async saveTicket(ticket: SupportTicket): Promise<void> {
+    await this.query(
+      `INSERT INTO support_tickets (id, user_id, subject, message, status, answer, created_at, updated_at, answered_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         answer = EXCLUDED.answer,
+         updated_at = EXCLUDED.updated_at,
+         answered_at = EXCLUDED.answered_at`,
+      [
+        ticket.id,
+        ticket.userId,
+        ticket.subject,
+        ticket.message,
+        ticket.status,
+        ticket.answer,
+        ticket.createdAt,
+        ticket.updatedAt,
+        ticket.answeredAt,
+      ],
+    )
+  }
+
+  async findTicket(id: string): Promise<SupportTicket | null> {
+    const rows = await this.query('SELECT * FROM support_tickets WHERE id = $1', [id])
+    return rows[0] ? this.toTicket(rows[0]) : null
+  }
+
+  async listTickets(limit: number): Promise<SupportTicket[]> {
+    const rows = await this.query('SELECT * FROM support_tickets ORDER BY created_at DESC LIMIT $1', [
+      limit,
+    ])
+    return rows.map((row) => this.toTicket(row))
+  }
+
+  async listUserTickets(userId: string, limit: number): Promise<SupportTicket[]> {
+    const rows = await this.query(
+      'SELECT * FROM support_tickets WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2',
+      [userId, limit],
+    )
+    return rows.map((row) => this.toTicket(row))
+  }
+
+  async countRecentTickets(userId: string, since: string): Promise<number> {
+    const rows = await this.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM support_tickets WHERE user_id = $1 AND created_at >= $2',
+      [userId, since],
+    )
+    return Number(rows[0]?.count ?? 0)
+  }
+
+  private toTicket(row: Row): SupportTicket {
+    return {
+      id: row.id,
+      userId: row.user_id,
+      subject: row.subject,
+      message: row.message,
+      status: row.status,
+      answer: row.answer,
+      createdAt: iso(row.created_at)!,
+      updatedAt: iso(row.updated_at)!,
+      answeredAt: iso(row.answered_at),
+    }
   }
 }

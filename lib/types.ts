@@ -121,6 +121,27 @@ export interface Release {
 
 export type LeadStatus = 'new' | 'in_progress' | 'approved' | 'rejected'
 
+export type TicketStatus = 'new' | 'in_progress' | 'answered' | 'closed'
+
+/**
+ * Обращение в поддержку от зарегистрированного пользователя.
+ *
+ * Почта и имя не дублируются: они берутся из аккаунта, поэтому обращение
+ * нельзя отправить от чужого имени.
+ */
+export interface SupportTicket {
+  id: string
+  userId: string
+  subject: string
+  message: string
+  status: TicketStatus
+  /** Ответ поддержки — его видит пользователь в кабинете. */
+  answer: string
+  createdAt: string
+  updatedAt: string
+  answeredAt: string | null
+}
+
 /** Заявка с сайта: пробный период для компании или запрос на подключение. */
 export interface Lead {
   id: string

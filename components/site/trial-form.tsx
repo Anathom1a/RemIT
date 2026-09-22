@@ -53,10 +53,11 @@ export function TrialForm({ trialDays, supportUrl }: { trialDays: number; suppor
         <h2 className="mt-4 text-xl font-semibold">Заявка принята</h2>
         <p className="mt-2 text-sm leading-relaxed text-text-secondary">
           Менеджер посмотрит заявку и откроет пробный период до {trialDays} дней на ваш аккаунт — обычно в
-          тот же рабочий день. Если нужно срочно, напишите в поддержку:{' '}
+          тот же рабочий день. Если нужно срочно —{' '}
           <a href={supportUrl} className="text-brand-400 underline decoration-dotted">
-            {supportUrl}
+            напишите в поддержку
           </a>
+          .
         </p>
       </div>
     )

@@ -196,10 +196,10 @@ export default function BusinessPage() {
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-text-muted">Telegram</dt>
+                  <dt className="text-text-muted">Поддержка</dt>
                   <dd>
                     <a href={config.brand.supportUrl} className="text-brand-400 underline decoration-dotted">
-                      {config.brand.supportUrl}
+                      форма в кабинете
                     </a>
                   </dd>
                 </div>

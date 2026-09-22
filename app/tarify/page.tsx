@@ -136,10 +136,11 @@ export default function PricingPage() {
               </table>
             </div>
             <p className="mt-6 text-sm text-text-muted">
-              Нужна конфигурация под ваш контур или выделенный сервер? Напишите в поддержку:{' '}
+              Нужна конфигурация под ваш контур или выделенный сервер?{' '}
               <a href={config.brand.supportUrl} className="text-brand-400 underline decoration-dotted">
-                {config.brand.supportUrl}
+                Напишите в поддержку
               </a>
+              .
             </p>
           </div>
         </section>

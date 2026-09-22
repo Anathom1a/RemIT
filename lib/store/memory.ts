@@ -6,6 +6,7 @@ import type {
   ConnSession,
   Device,
   Lead,
+  SupportTicket,
   Payment,
   Release,
   Subscription,
@@ -24,6 +25,7 @@ interface Snapshot {
   settings: Record<string, string>
   releases: Release[]
   leads: Lead[]
+  tickets: SupportTicket[]
 }
 
 /**
@@ -47,6 +49,7 @@ export class MemoryStore implements Store {
   private settings: Record<string, string> = {}
   private releases = new Map<string, Release>()
   private leads = new Map<string, Lead>()
+  private tickets = new Map<string, SupportTicket>()
   private loadedMtimeMs = -1
 
   constructor(private readonly file: string) {}
@@ -78,6 +81,7 @@ export class MemoryStore implements Store {
       this.settings = snapshot.settings ?? {}
       this.releases = new Map(snapshot.releases?.map((r) => [r.id, r]))
       this.leads = new Map(snapshot.leads?.map((l) => [l.id, l]))
+      this.tickets = new Map(snapshot.tickets?.map((t) => [t.id, t]))
       this.loadedMtimeMs = mtimeMs
     } catch {
       // Файл повреждён или пишется прямо сейчас — оставляем текущее состояние.
@@ -96,6 +100,7 @@ export class MemoryStore implements Store {
       settings: this.settings,
       releases: [...this.releases.values()],
       leads: [...this.leads.values()],
+      tickets: [...this.tickets.values()],
     }
     const target = path.resolve(this.file)
     try {
@@ -379,6 +384,43 @@ export class MemoryStore implements Store {
     const normalized = email.trim().toLowerCase()
     return [...this.leads.values()].filter(
       (lead) => lead.email === normalized && lead.createdAt >= since,
+    ).length
+  }
+
+  async createTicket(ticket: SupportTicket): Promise<void> {
+    await this.saveTicket(ticket)
+  }
+
+  async saveTicket(ticket: SupportTicket): Promise<void> {
+    await this.sync()
+    this.tickets.set(ticket.id, ticket)
+    await this.persist()
+  }
+
+  async findTicket(id: string): Promise<SupportTicket | null> {
+    await this.sync()
+    return this.tickets.get(id) ?? null
+  }
+
+  async listTickets(limit: number): Promise<SupportTicket[]> {
+    await this.sync()
+    return [...this.tickets.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+  }
+
+  async listUserTickets(userId: string, limit: number): Promise<SupportTicket[]> {
+    await this.sync()
+    return [...this.tickets.values()]
+      .filter((ticket) => ticket.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit)
+  }
+
+  async countRecentTickets(userId: string, since: string): Promise<number> {
+    await this.sync()
+    return [...this.tickets.values()].filter(
+      (ticket) => ticket.userId === userId && ticket.createdAt >= since,
     ).length
   }
 }

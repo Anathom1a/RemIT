@@ -9,6 +9,7 @@ import { getRuntimeSettings } from '@/lib/settings'
 const NAV = [
   { href: '/kabinet', label: 'Обзор' },
   { href: '/kabinet/ustroystva', label: 'Устройства' },
+  { href: '/kabinet/podderzhka', label: 'Поддержка' },
   { href: '/kabinet/podpiska', label: 'Подписка' },
 ]
 

@@ -7,6 +7,7 @@ const NAV = [
   { href: '/admin', label: 'Обзор' },
   { href: '/admin/polzovateli', label: 'Пользователи' },
   { href: '/admin/zayavki', label: 'Заявки' },
+  { href: '/admin/obrashcheniya', label: 'Обращения' },
   { href: '/admin/platezhi', label: 'Платежи и подписки' },
   { href: '/admin/sessii', label: 'Сессии' },
   { href: '/admin/ustroystva', label: 'Устройства' },

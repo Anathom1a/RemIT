@@ -3,6 +3,7 @@ import type {
   ConnSession,
   Device,
   Lead,
+  SupportTicket,
   Payment,
   Release,
   Subscription,
@@ -69,6 +70,13 @@ export interface Store {
   saveLead(lead: Lead): Promise<void>
   /** Сколько заявок пришло с адреса за последние сутки — защита от спама. */
   countRecentLeads(email: string, since: string): Promise<number>
+
+  createTicket(ticket: SupportTicket): Promise<void>
+  saveTicket(ticket: SupportTicket): Promise<void>
+  findTicket(id: string): Promise<SupportTicket | null>
+  listTickets(limit: number): Promise<SupportTicket[]>
+  listUserTickets(userId: string, limit: number): Promise<SupportTicket[]>
+  countRecentTickets(userId: string, since: string): Promise<number>
 
   /** Выпуски клиента для сервера обновлений. */
   listReleases(): Promise<Release[]>

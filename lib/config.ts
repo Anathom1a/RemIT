@@ -21,7 +21,17 @@ export const config = {
     name: env('REMIT_BRAND', 'RemIT'),
     latinName: env('REMIT_BRAND_LATIN', 'RemIT'),
     domain: env('REMIT_DOMAIN', 'remit.su'),
-    supportUrl: env('REMIT_SUPPORT_URL', 'https://t.me/Mrdikpic'),
+    /**
+     * Единственный официальный канал обращений — форма в кабинете. Личные
+     * мессенджеры сюда не ставим: переписка должна оставаться в компании,
+     * а не в чьём-то личном аккаунте.
+     */
+    supportUrl: env('REMIT_SUPPORT_URL', 'https://remit.su/kabinet/podderzhka'),
+    /**
+     * Официальный бот поддержки. Пока не запущен — пусто, и тогда его
+     * просто нигде не показываем.
+     */
+    supportBotUrl: env('REMIT_SUPPORT_BOT_URL', ''),
     supportEmail: env('REMIT_SUPPORT_EMAIL', 'support@remit.su'),
     /** Почта отдела продаж: заявки компаний и счета. */
     salesEmail: env('REMIT_SALES_EMAIL', 'sales@remit.su'),

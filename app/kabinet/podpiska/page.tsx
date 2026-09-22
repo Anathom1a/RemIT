@@ -73,9 +73,8 @@ export default async function SubscriptionPage({
               </>
             ) : (
               <>
-                Отправьте номер счёта в поддержку —{' '}
                 <a href={config.brand.supportUrl} className="text-brand-400 underline decoration-dotted">
-                  {config.brand.supportUrl}
+                  Отправьте номер счёта в поддержку
                 </a>
                 . Подписка включится сразу после подтверждения оплаты.
               </>
@@ -164,7 +163,7 @@ export default async function SubscriptionPage({
             href={config.brand.supportUrl}
             className="mt-2 block rounded-xl border border-white/12 bg-ink-800/70 px-5 py-2.5 text-center text-sm text-text-primary"
           >
-            Написать в Telegram
+            Написать в поддержку
           </a>
         </div>
       </div>

@@ -137,3 +137,20 @@ CREATE TABLE IF NOT EXISTS leads (
 
 CREATE INDEX IF NOT EXISTS leads_created_idx ON leads(created_at DESC);
 CREATE INDEX IF NOT EXISTS leads_email_idx ON leads(email, created_at DESC);
+
+-- Обращения в поддержку от зарегистрированных пользователей.
+-- Почта и имя не хранятся: они берутся из аккаунта по user_id.
+CREATE TABLE IF NOT EXISTS support_tickets (
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    subject     TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'new',
+    answer      TEXT NOT NULL DEFAULT '',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    answered_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS support_tickets_user_idx ON support_tickets (user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS support_tickets_status_idx ON support_tickets (status, created_at DESC);

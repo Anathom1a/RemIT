@@ -56,14 +56,19 @@ export default function SupportPage() {
           <div className="relative mx-auto max-w-6xl px-5 py-16 text-center">
             <h1 className="text-4xl font-semibold sm:text-5xl">Поддержка</h1>
             <p className="mx-auto mt-4 max-w-2xl text-text-secondary">
-              Отвечаем в Telegram и по почте. Ниже — короткие ответы на то, что спрашивают чаще всего.
+              Что-то не так? Обратитесь в поддержку — форма в личном кабинете. Обращение попадает к
+              дежурному инженеру, а ответ приходит туда же, в кабинет. Ниже — короткие ответы на то, что
+              спрашивают чаще всего.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <ButtonLink href={config.brand.supportUrl}>Написать в Telegram</ButtonLink>
+              <ButtonLink href="/kabinet/podderzhka">Обратиться в поддержку</ButtonLink>
               <ButtonLink href={`mailto:${config.brand.supportEmail}`} variant="secondary">
                 {config.brand.supportEmail}
               </ButtonLink>
             </div>
+            <p className="mt-4 text-sm text-text-muted">
+              Форма доступна после входа в аккаунт — так мы сразу видим ваш тариф и устройства.
+            </p>
           </div>
         </section>
 

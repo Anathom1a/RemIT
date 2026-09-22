@@ -20,10 +20,15 @@
 5. flutter/lib/common.dart
    - логотип в главном окне открывает сайт по нажатию.
 6. Заменяет видимые вхождения «RustDesk» в ресурсах сборки и интерфейсе.
-
-Файлы переводов (src/lang/*.rs) намеренно не трогаем: RustDesk сам подставляет
-название продукта во время работы, а переименование в этих файлах сломало бы
-ключи переводов вроде «About RustDesk».
+7. flutter/lib/desktop/pages/desktop_setting_page.dart
+   - окно «О программе»: ссылки ведут на наш сайт, рядом появляются
+     «Поддержка» и «Исходный код» (второе требует AGPL-3.0).
+8. src/lang/*.rs
+   - в переводах меняем только значения: ключ — это английский оригинал,
+     по нему translate() ищет строку, и переименование ключа вроде
+     «About RustDesk» просто выключило бы перевод.
+   - подпись под главным окном (powered_by_me) вместо «Основано на RustDesk»
+     зовёт написать в поддержку.
 
 Использование:
     python3 brand-client.py /path/to/rustdesk \
@@ -659,6 +664,260 @@ def make_logo_clickable(path: Path, site_url: str) -> None:
     print(f"Логотип сделан ссылкой на {site_url} в {path}")
 
 
+# Подпись под главным окном: у RustDesk это «Основано на RustDesk» со ссылкой
+# на rustdesk.com. Ставим на её место приглашение написать в поддержку.
+POWERED_ANCHOR = """Widget loadPowered(BuildContext context) {
+  if (bind.mainGetBuildinOption(key: "hide-powered-by-me") == 'Y') {
+    return SizedBox.shrink();
+  }
+  return MouseRegion(
+    cursor: SystemMouseCursors.click,
+    child: GestureDetector(
+      onTap: () {
+        launchUrl(Uri.parse('https://rustdesk.com'));
+      },
+      child: Opacity(
+          opacity: 0.5,
+          child: Text(
+            translate("powered_by_me"),
+            overflow: TextOverflow.clip,
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(fontSize: 9, decoration: TextDecoration.underline),
+          )),
+    ),
+  ).marginOnly(top: 6);
+}"""
+
+
+def replace_powered_by(path: Path, support_url: str) -> None:
+    """Меняет подпись «Основано на RustDesk» на ссылку в поддержку.
+
+    Сам текст берём из переводов (ключ powered_by_me) — его правит
+    rebrand_lang_strings. Здесь меняем адрес ссылки и делаем надпись
+    читаемой: девятый кегль под половинной прозрачностью в окне не видно,
+    а ссылка должна бросаться в глаза, когда что-то не работает.
+    """
+    source = path.read_text(encoding="utf-8")
+    if "remit-support-link" in source:
+        print("Ссылка на поддержку уже добавлена — пропускаем.")
+        return
+    if source.count(POWERED_ANCHOR) != 1:
+        raise SystemExit(
+            f"{path}: не найдена подпись loadPowered(). "
+            "Исходники RustDesk изменились — обновите скрипт."
+        )
+
+    replacement = f"""Widget loadPowered(BuildContext context) {{
+  // remit-support-link: вместо упоминания исходного проекта — путь в поддержку.
+  if (bind.mainGetBuildinOption(key: "hide-powered-by-me") == 'Y') {{
+    return SizedBox.shrink();
+  }}
+  return MouseRegion(
+    cursor: SystemMouseCursors.click,
+    child: GestureDetector(
+      onTap: () {{
+        launchUrl(Uri.parse('{support_url}'));
+      }},
+      child: Text(
+        translate("powered_by_me"),
+        overflow: TextOverflow.clip,
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            fontSize: 11,
+            color: MyTheme.accent,
+            decoration: TextDecoration.underline),
+      ),
+    ),
+  ).marginOnly(top: 6, left: 8, right: 8);
+}}"""
+
+    backup = path.with_suffix(path.suffix + ".bak")
+    if not backup.exists():
+        backup.write_text(source, encoding="utf-8")
+    path.write_text(source.replace(POWERED_ANCHOR, replacement, 1), encoding="utf-8")
+    print(f"Подпись под окном ведёт в поддержку: {support_url}")
+
+
+# Окно «О программе»: ссылки ведут на rustdesk.com.
+ABOUT_LINKS = [
+    ("https://rustdesk.com/privacy.html", "{site}/dokumenty/politika"),
+    ("https://rustdesk.com", "{site}"),
+]
+
+ABOUT_WEBSITE_ANCHOR = """              InkWell(
+                  onTap: () {
+                    launchUrlString('__SITE__');
+                  },
+                  child: Text(
+                    translate('Website'),
+                    style: linkStyle,
+                  ).marginSymmetric(vertical: 4.0)),"""
+
+
+def patch_about_dialog(path: Path, site_url: str, support_url: str, source_url: str) -> None:
+    """Правит окно «О программе».
+
+    Ссылки «Политика конфиденциальности» и «Сайт» ведут на наш сайт, рядом
+    появляются «Обратиться в поддержку» и «Исходный код». Блок с копирайтом
+    и названием лицензии не трогаем: AGPL требует сохранять уведомление об
+    авторских правах, а ссылка на исходники — вторая половина этого
+    требования, без неё раздавать сборку нельзя.
+    """
+    source = path.read_text(encoding="utf-8")
+    if "remit-about-links" in source:
+        print("Окно «О программе» уже переведено на наши ссылки — пропускаем.")
+        return
+
+    for old, new in ABOUT_LINKS:
+        target = new.format(site=site_url)
+        quoted = f"launchUrlString('{old}');"
+        if quoted not in source:
+            raise SystemExit(
+                f"{path}: не найдена ссылка {old} в окне «О программе». "
+                "Исходники RustDesk изменились — обновите скрипт."
+            )
+        source = source.replace(quoted, f"launchUrlString('{target}');", 1)
+
+    website_block = ABOUT_WEBSITE_ANCHOR.replace("__SITE__", site_url)
+    if source.count(website_block) != 1:
+        raise SystemExit(
+            f"{path}: не найден блок ссылки «Website». "
+            "Исходники RustDesk изменились — обновите скрипт."
+        )
+
+    extra = f"""
+              // remit-about-links: поддержка и исходный код.
+              InkWell(
+                  onTap: () {{
+                    launchUrlString('{support_url}');
+                  }},
+                  child: Text(
+                    translate('Support'),
+                    style: linkStyle,
+                  ).marginSymmetric(vertical: 4.0)),
+              InkWell(
+                  onTap: () {{
+                    launchUrlString('{source_url}');
+                  }},
+                  child: Text(
+                    translate('Source Code'),
+                    style: linkStyle,
+                  ).marginSymmetric(vertical: 4.0)),"""
+
+    # Плашка с копирайтом залита синим RustDesk — перекрашиваем в фирменный
+    # цвет, сам текст уведомления при этом остаётся нетронутым.
+    blue = "const BoxDecoration(color: Color(0xFF2c8cff))"
+    if blue in source:
+        source = source.replace(blue, "const BoxDecoration(color: Color(0xFF0D9488))", 1)
+
+    backup = path.with_suffix(path.suffix + ".bak")
+    if not backup.exists():
+        backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    path.write_text(source.replace(website_block, website_block + extra, 1), encoding="utf-8")
+    print(f"Окно «О программе» переведено на ссылки {site_url}")
+
+
+# Оставшиеся ссылки на rustdesk.com в интерфейсе: окно установки, настройки
+# на телефоне и предложение скачать новую версию. Правим адрес и видимый текст,
+# иначе пользователь из нашей программы попадает на чужой сайт.
+SITE_LINKS: list[tuple[str, str]] = [
+    ("https://rustdesk.com/privacy.html", "{site}/dokumenty/politika"),
+    ("https://rustdesk.com/download", "{site}/skachat"),
+    ("https://rustdesk.com/pricing", "{site}/tarify"),
+    ("https://rustdesk.com/", "{site}"),
+]
+
+SITE_LINK_FILES = [
+    "flutter/lib/desktop/pages/install_page.dart",
+    "flutter/lib/desktop/pages/connection_page.dart",
+    "flutter/lib/mobile/pages/settings_page.dart",
+    "flutter/lib/mobile/pages/connection_page.dart",
+]
+
+
+def retarget_site_links(root: Path, site_url: str, domain: str) -> None:
+    """Переводит оставшиеся ссылки интерфейса на наш сайт.
+
+    Ссылки на документацию (rustdesk.com/docs/...) не трогаем: там описаны
+    настройки Linux, своей такой страницы у нас нет, и вести пользователя в
+    никуда хуже, чем в чужую, но рабочую документацию.
+    """
+    total = 0
+    for relative in SITE_LINK_FILES:
+        path = root / relative
+        if not path.is_file():
+            continue
+        source = path.read_text(encoding="utf-8")
+        original = source
+        for old, template in SITE_LINKS:
+            source = source.replace(old, template.format(site=site_url))
+        # Видимая подпись ссылки — тот же адрес, но без схемы.
+        source = source.replace("Text('rustdesk.com'", f"Text('{domain}'")
+        if source != original:
+            path.write_text(source, encoding="utf-8")
+            total += 1
+    print(f"Ссылки интерфейса переведены на {site_url}: файлов — {total}")
+
+
+# Тексты подписи под окном. Ключ powered_by_me есть во всех переводах, поэтому
+# меняем значение — так надпись остаётся переводимой.
+POWERED_TEXT_RU = "Что-то не так? Обратитесь в поддержку"
+POWERED_TEXT_EN = "Something wrong? Contact support"
+
+# Строка вида `        ("ключ", "значение"),` — правим только значение,
+# иначе поломаются ключи вроде "About RustDesk", по которым идёт поиск.
+LANG_LINE = re.compile(
+    r'^(\s*\("(?:[^"\\]|\\.)*",\s*")((?:[^"\\]|\\.)*)("\),?\s*)$',
+    re.MULTILINE,
+)
+POWERED_LINE = re.compile(r'^(\s*\("powered_by_me",\s*")(?:[^"\\]|\\.)*("\),?\s*)$', re.MULTILINE)
+
+
+def rebrand_lang_strings(root: Path, app_name: str) -> None:
+    """Убирает RustDesk из переводов и меняет подпись под главным окном.
+
+    Заменяем только значения: ключ — это английский оригинал, по нему
+    translate() ищет строку, и переименование ключа просто выключило бы
+    перевод.
+    """
+    lang_dir = root / "src" / "lang"
+    if not lang_dir.is_dir():
+        print(f"Пропускаю переводы: не найден {lang_dir}")
+        return
+
+    total = 0
+    for path in sorted(lang_dir.glob("*.rs")):
+        source = path.read_text(encoding="utf-8")
+        original = source
+
+        text = POWERED_TEXT_RU if path.stem in {"ru", "be", "kz"} else POWERED_TEXT_EN
+        source = POWERED_LINE.sub(lambda m: f"{m.group(1)}{text}{m.group(2)}", source)
+
+        # Ключи, которых у RustDesk нет: добавляем русские значения для новых
+        # ссылок в окне «О программе». В остальных языках translate() вернёт
+        # сам ключ — английский текст, и это допустимый запасной вариант.
+        if path.stem == "ru" and '("Source Code"' not in source:
+            source = POWERED_LINE.sub(
+                lambda m: m.group(0)
+                + '\n        ("Support", "Поддержка"),'
+                + '\n        ("Source Code", "Исходный код"),',
+                source,
+                count=1,
+            )
+
+        def value_only(match: re.Match[str]) -> str:
+            return match.group(1) + match.group(2).replace("RustDesk", app_name) + match.group(3)
+
+        source = LANG_LINE.sub(value_only, source)
+
+        if source != original:
+            path.write_text(source, encoding="utf-8")
+            total += 1
+    print(f"Переводы поправлены: файлов — {total}")
+
+
 STATUS_IMPORT_ANCHOR = "import 'package:flutter_hbb/models/state_model.dart';"
 STATUS_IMPORT = "import 'package:flutter_hbb/remit_status.dart';"
 
@@ -847,6 +1106,16 @@ def main() -> int:
     parser.add_argument("--relay-server", default="remit.su")
     parser.add_argument("--api-server", default="https://remit.su")
     parser.add_argument(
+        "--support-url",
+        default="https://remit.su/kabinet/podderzhka",
+        help="Куда ведёт приглашение написать в поддержку",
+    )
+    parser.add_argument(
+        "--source-url",
+        default="https://github.com/Anathom1a/rustdesk",
+        help="Публичные исходники клиента: требование AGPL-3.0",
+    )
+    parser.add_argument(
         "--update-url",
         default="https://remit.su/api/version/latest",
         help="Адрес проверки обновлений (маршрут сервера обновлений RemIT)",
@@ -902,6 +1171,7 @@ def main() -> int:
     if flutter_common.is_file():
         enable_flutter_update_check(flutter_common)
         make_logo_clickable(flutter_common, site_url)
+        replace_powered_by(flutter_common, args.support_url)
         restyle_theme(flutter_common)
     else:
         print(f"Пропускаю проверку обновлений в интерфейсе: не найден {flutter_common}")
@@ -911,6 +1181,16 @@ def main() -> int:
         enable_update_card(home_page, site_url)
     else:
         print(f"Пропускаю карточку обновления: не найден {home_page}")
+
+    settings_page = (
+        args.root / "flutter" / "lib" / "desktop" / "pages" / "desktop_setting_page.dart"
+    )
+    if settings_page.is_file():
+        patch_about_dialog(settings_page, site_url, args.support_url, args.source_url)
+    else:
+        print(f"Пропускаю окно «О программе»: не найден {settings_page}")
+
+    retarget_site_links(args.root, site_url, site_url.split("://")[-1].rstrip("/"))
 
     mobile_page = args.root / "flutter" / "lib" / "mobile" / "pages" / "connection_page.dart"
     if mobile_page.is_file():
@@ -936,6 +1216,7 @@ def main() -> int:
     install_brand_assets(args.root, args.brand_dir)
     install_font(args.root, args.brand_dir)
     rebrand_visible_strings(args.root, args.app_name)
+    rebrand_lang_strings(args.root, args.app_name)
     print(
         "\nГотово. Осталось проверить строки установщика и собрать клиент."
     )
