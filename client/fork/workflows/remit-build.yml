@@ -334,6 +334,9 @@ jobs:
           # --hwcodec is shared by all Windows targets; per-target extras (e.g. --vram) come from the matrix
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec ${{ matrix.job.build-args }}
           mv ./flutter/build/windows/${{ matrix.job.flutter-arch }}/runner/Release ./rustdesk
+          # Имя файла — имя продукта: его ищут и preprocess.py, и запись об
+          # установленной программе в «Программах и компонентах».
+          mv ./rustdesk/rustdesk.exe "./rustdesk/${{ vars.REMIT_APP_NAME || 'RemIT' }}.exe"
 
           # Download usbmmidd_v2.zip and extract it to ./rustdesk
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
@@ -413,7 +416,7 @@ jobs:
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
-          python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe
+          python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${{ vars.REMIT_APP_NAME || 'RemIT' }}.exe"
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe ./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe
@@ -429,6 +432,9 @@ jobs:
         run: |
           pushd ./res/msi
           python preprocess.py --arp -d ../../rustdesk --app-name "${{ vars.REMIT_APP_NAME || 'RemIT' }}"
+          # PowerShell смотрит только на код возврата последней команды шага, поэтому падение preprocess.py
+          # иначе осталось бы незамеченным: msbuild валился бы на незаполненных переменных WiX.
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           nuget restore msi.sln
           $msiPlatform = if ('${{ matrix.job.arch }}' -eq 'aarch64') { 'ARM64' } else { 'x64' }
           msbuild msi.sln -p:Configuration=Release -p:Platform=$msiPlatform /p:TargetVersion=Windows10

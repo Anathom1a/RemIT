@@ -224,11 +224,43 @@ win = drop(win, "target: aarch64-pc-windows-msvc,", "}")
 _msi_old = "python preprocess.py --arp -d ../../rustdesk"
 _msi_new = (
     "python preprocess.py --arp -d ../../rustdesk "
-    "--app-name \"${{ vars.REMIT_APP_NAME || 'RemIT' }}\""
+    "--app-name \"${{ vars.REMIT_APP_NAME || 'RemIT' }}\"\n"
+    "          # PowerShell смотрит только на код возврата последней команды шага,"
+    " поэтому падение preprocess.py\n"
+    "          # иначе осталось бы незамеченным: msbuild валился бы"
+    " на незаполненных переменных WiX.\n"
+    "          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }"
 )
 if _msi_old not in win:
     raise SystemExit("не нашёл вызов preprocess.py — обновите скрипт")
 win = win.replace(_msi_old, _msi_new, 1)
+
+# preprocess.py ищет в папке сборки файл с именем продукта: RemIT.exe. Flutter
+# же собирает rustdesk.exe — имя задано в flutter/windows/CMakeLists.txt. Без
+# переименования скрипт молча падал (PowerShell смотрит только на код возврата
+# последней команды), переменные WiX оставались незаполненными, и msbuild
+# валился с «Undefined preprocessor variable '$(var.Product)'». Переименовываем
+# сразу после сборки: и установщик, и распакованная портативная версия должны
+# содержать файл с именем продукта.
+_exe_old = """          mv ./flutter/build/windows/${{ matrix.job.flutter-arch }}/runner/Release ./rustdesk
+"""
+_exe_new = """          mv ./flutter/build/windows/${{ matrix.job.flutter-arch }}/runner/Release ./rustdesk
+          # Имя файла — имя продукта: его ищут и preprocess.py, и запись об
+          # установленной программе в «Программах и компонентах».
+          mv ./rustdesk/rustdesk.exe "./rustdesk/${{ vars.REMIT_APP_NAME || 'RemIT' }}.exe"
+"""
+if _exe_old not in win:
+    raise SystemExit("не нашёл перенос папки сборки Windows — обновите скрипт")
+win = win.replace(_exe_old, _exe_new, 1)
+
+_pack_old = "python3 ./generate.py -f ../../rustdesk/ -o . -e ../../rustdesk/rustdesk.exe"
+_pack_new = (
+    "python3 ./generate.py -f ../../rustdesk/ -o . "
+    "-e \"../../rustdesk/${{ vars.REMIT_APP_NAME || 'RemIT' }}.exe\""
+)
+if _pack_old not in win:
+    raise SystemExit("не нашёл упаковку портативной версии — обновите скрипт")
+win = win.replace(_pack_old, _pack_new, 1)
 
 win = win.replace(
     "    needs: [build-RustDeskTempTopMostWindow, generate-bridge]",
