@@ -1,4 +1,35 @@
 @import 'tailwindcss';
+/* Inter лежит рядом с сайтом: без внешних CDN и без зависимости от того,
+   установлен ли шрифт у посетителя. Лицензия — public/fonts/OFL.txt. */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Medium.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 
 /*
  * Дизайн-система RemIT. Тёмная тема — один слой фона, один слой
@@ -6,21 +37,21 @@
  * перекрасить продукт можно было в одном месте.
  */
 @theme {
-  --color-ink-950: #05070d;
-  --color-ink-900: #080b14;
-  --color-ink-850: #0b101c;
-  --color-ink-800: #101829;
-  --color-ink-700: #172236;
-  --color-ink-600: #22304a;
+  --color-ink-950: #0c0e10;
+  --color-ink-900: #111316;
+  --color-ink-850: #15181c;
+  --color-ink-800: #1a1d21;
+  --color-ink-700: #22262b;
+  --color-ink-600: #2e333a;
 
-  --color-brand-600: #1f5fe0;
-  --color-brand-500: #3b7bfa;
-  --color-brand-400: #5f9bff;
-  --color-cyan-accent: #2fd8e6;
+  --color-brand-600: #0d9488;
+  --color-brand-500: #14b8a6;
+  --color-brand-400: #2dd4bf;
+  --color-cyan-accent: #5eead4;
 
-  --color-text-primary: #e9eefb;
-  --color-text-secondary: #a7b4cc;
-  --color-text-muted: #6f7f9b;
+  --color-text-primary: #e9ecef;
+  --color-text-secondary: #a8b0ba;
+  --color-text-muted: #7c8792;
 
   --color-success: #35d39a;
   --color-warning: #f7bf4a;

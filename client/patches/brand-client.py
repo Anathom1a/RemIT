@@ -404,6 +404,59 @@ def brand_portable_folder(path: Path, app_name: str) -> None:
     print(f"Папка распаковки переименована в {folder}: {path}")
 
 
+def install_font(root: Path, brand_dir: Path) -> None:
+    """Кладёт шрифт в сборку и объявляет его в pubspec и в теме."""
+    source_dir = brand_dir / "fonts"
+    if not source_dir.is_dir():
+        print("Каталог со шрифтом не найден — остаётся системный")
+        return
+
+    target_dir = root / "flutter" / "assets" / "fonts"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for name, _weight in FONT_WEIGHTS:
+        source = source_dir / f"{FONT_FAMILY}-{name}.ttf"
+        if source.is_file():
+            shutil.copyfile(source, target_dir / source.name)
+            copied += 1
+    licence = source_dir / "OFL.txt"
+    if licence.is_file():
+        shutil.copyfile(licence, target_dir / "OFL.txt")
+    if copied == 0:
+        print("Файлов шрифта нет — остаётся системный")
+        return
+
+    pubspec = root / "flutter" / "pubspec.yaml"
+    text = pubspec.read_text(encoding="utf-8")
+    if f"family: {FONT_FAMILY}" not in text:
+        anchor = "  fonts:\n"
+        if anchor not in text:
+            raise SystemExit(f"{pubspec}: не найден раздел fonts — обновите скрипт.")
+        block = f"    - family: {FONT_FAMILY}\n      fonts:\n"
+        for name, weight in FONT_WEIGHTS:
+            if (source_dir / f"{FONT_FAMILY}-{name}.ttf").is_file():
+                block += (
+                    f"        - asset: assets/fonts/{FONT_FAMILY}-{name}.ttf\n"
+                    f"          weight: {weight}\n"
+                )
+        text = text.replace(anchor, anchor + block, 1)
+        pubspec.write_text(text, encoding="utf-8")
+
+    common = root / "flutter" / "lib" / "common.dart"
+    text = common.read_text(encoding="utf-8")
+    changed = 0
+    for anchor in ("  static ThemeData lightTheme = ThemeData(\n",
+                   "  static ThemeData darkTheme = ThemeData(\n"):
+        if anchor not in text:
+            raise SystemExit(f"{common}: не найдена тема — обновите скрипт.")
+        if text.count(anchor + f"    fontFamily: '{FONT_FAMILY}',\n") == 0:
+            text = text.replace(anchor, anchor + f"    fontFamily: '{FONT_FAMILY}',\n", 1)
+            changed += 1
+    if changed:
+        common.write_text(text, encoding="utf-8")
+    print(f"Шрифт {FONT_FAMILY} встроен: {copied} начертани(й)")
+
+
 def install_brand_assets(root: Path, brand_dir: Path) -> None:
     """Меняет иконки RustDesk на наши во всём дереве."""
     if not brand_dir.is_dir():
@@ -643,42 +696,66 @@ def write_status_widget(root: Path, site_url: str) -> None:
 # меняем ещё и фон, карточки, поля ввода и границы: именно они задают
 # впечатление «это другая программа».
 THEME_REPLACEMENTS: list[tuple[str, str, str]] = [
-    # --- акценты ---
+    # --- акценты: бирюза вместо синего RustDesk ---
+    # accent тёмный настолько, чтобы белый текст на кнопке читался;
+    # idColor яркий — он рисуется текстом на тёмной карточке.
     ("accent", "static const Color accent = Color(0xFF0071FF);",
-     "static const Color accent = Color(0xFF3B7BFA);"),
+     "static const Color accent = Color(0xFF0D9488);"),
     ("accent50", "static const Color accent50 = Color(0x770071FF);",
-     "static const Color accent50 = Color(0x773B7BFA);"),
+     "static const Color accent50 = Color(0x770D9488);"),
     ("accent80", "static const Color accent80 = Color(0xAA0071FF);",
-     "static const Color accent80 = Color(0xAA3B7BFA);"),
+     "static const Color accent80 = Color(0xAA0D9488);"),
     ("idColor", "static const Color idColor = Color(0xFF00B6F0);",
-     "static const Color idColor = Color(0xFF2FD8E6);"),
+     "static const Color idColor = Color(0xFF2DD4BF);"),
     ("button", "static const Color button = Color(0xFF2C8CFF);",
-     "static const Color button = Color(0xFF5F9BFF);"),
+     "static const Color button = Color(0xFF14B8A6);"),
     ("canvasColor", "static const Color canvasColor = Color(0xFF212121);",
-     "static const Color canvasColor = Color(0xFF080B14);"),
-    # --- тёмная тема: серый RustDesk меняем на холодный ink с сайта ---
+     "static const Color canvasColor = Color(0xFF0C0E10);"),
+    # --- тёмная тема: нейтральный графит вместо синеватого серого ---
     ("тёмный фон", "scaffoldBackgroundColor: Color(0xFF18191E),",
-     "scaffoldBackgroundColor: Color(0xFF0B101C),"),
+     "scaffoldBackgroundColor: Color(0xFF111316),"),
     ("фон диалогов", "dialogBackgroundColor: Color(0xFF18191E),",
-     "dialogBackgroundColor: Color(0xFF0B101C),"),
+     "dialogBackgroundColor: Color(0xFF111316),"),
     ("наведение (тёмная)", "hoverColor: Color.fromARGB(255, 45, 46, 53),",
-     "hoverColor: Color(0xFF17233A),"),
+     "hoverColor: Color(0xFF22262B),"),
     ("карточки", "cardColor: Color(0xFF24252B),",
-     "cardColor: Color(0xFF101829),"),
+     "cardColor: Color(0xFF1A1D21),"),
     ("поля ввода", "fillColor: Color(0xFF24252B),",
-     "fillColor: Color(0xFF101829),"),
+     "fillColor: Color(0xFF1A1D21),"),
     ("рамка диалога", "color: Color(0xFF24252B),",
-     "color: Color(0xFF1B2740),"),
+     "color: Color(0xFF2E333A),"),
     ("границы (тёмная)", "border: Color(0xFF555555),",
-     "border: Color(0xFF1B2740),"),
+     "border: Color(0xFF2E333A),"),
     ("подсветка (тёмная)", "highlight: Color(0xFF3F3F3F),",
-     "highlight: Color(0xFF17233A),"),
-    # --- светлая тема: лёгкий холодный оттенок вместо чистого белого ---
+     "highlight: Color(0xFF22262B),"),
+    # --- светлая тема: холодный светло-серый вместо чистого белого ---
     ("светлый фон", "scaffoldBackgroundColor: Colors.white,",
-     "scaffoldBackgroundColor: Color(0xFFF4F7FD),"),
+     "scaffoldBackgroundColor: Color(0xFFF6F7F9),"),
     ("наведение (светлая)", "hoverColor: Color.fromARGB(255, 224, 224, 224),",
-     "hoverColor: Color(0xFFE3EAF7),"),
+     "hoverColor: Color(0xFFE7EAEE),"),
+    # --- форма: углы у списков сглажены. Диалоги и поля ввода не трогаем:
+    # там те же значения встречаются в нескольких виджетах, и замена вслепую
+    # задела бы не то. Вернёмся к ним, когда увидим живой скриншот.
+    ("углы списков", """  static const ListTileThemeData listTileTheme = ListTileThemeData(
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(
+        Radius.circular(5),
+      ),
+    ),
+  );""", """  static const ListTileThemeData listTileTheme = ListTileThemeData(
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(
+        Radius.circular(10),
+      ),
+    ),
+  );"""),
 ]
+
+# Шрифт интерфейса. RustDesk рисует системным — на Windows это Segoe UI,
+# и именно он сильнее всего выдаёт «это тот же RustDesk». Inter кладём в
+# сборку: свободная лицензия, полная кириллица, хорошо читается мелким.
+FONT_FAMILY = "Inter"
+FONT_WEIGHTS = [("Regular", 400), ("Medium", 500), ("SemiBold", 600), ("Bold", 700)]
 
 
 def restyle_theme(path: Path) -> None:
@@ -857,6 +934,7 @@ def main() -> int:
         brand_portable_folder(portable_main, args.app_name)
 
     install_brand_assets(args.root, args.brand_dir)
+    install_font(args.root, args.brand_dir)
     rebrand_visible_strings(args.root, args.app_name)
     print(
         "\nГотово. Осталось проверить строки установщика и собрать клиент."

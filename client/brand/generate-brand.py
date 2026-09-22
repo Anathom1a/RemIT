@@ -7,7 +7,7 @@
 скриптом client/patches/brand-client.py (таблица BRAND_ASSETS).
 
 Знак: экран со стрелкой внутрь — удалённый вход. Палитра:
-ink #0A0F1C, indigo #3457D5, sky #38BDF8, светлый #F0F5FF.
+графит #0C0E10, teal #0D9488 -> #2DD4BF, светлый #E9ECEF.
 """
 
 from __future__ import annotations
@@ -20,11 +20,11 @@ from PIL import Image, ImageDraw, ImageFont
 
 OUT = Path(__file__).resolve().parent
 
-INK = (10, 15, 28, 255)          # #0A0F1C
-RING = (27, 39, 64, 255)         # #1B2740
-BRAND_LIGHT = (52, 87, 213, 255)   # #3457D5
-CYAN = (56, 189, 248, 255)       # #38BDF8
-PAPER = (240, 245, 255, 255)     # #F0F5FF
+INK = (12, 14, 16, 255)          # #0C0E10
+RING = (46, 51, 58, 255)         # #2E333A
+BRAND_LIGHT = (13, 148, 136, 255)  # #0D9488
+CYAN = (45, 212, 191, 255)       # #2DD4BF
+PAPER = (233, 236, 239, 255)     # #E9ECEF
 
 SS = 4  # суперсэмплинг
 
@@ -228,8 +228,8 @@ def svg_mark() -> str:
         'width="256" height="256">\n'
         '  <defs>\n'
         '    <linearGradient id="remit" x1="0" y1="0" x2="1" y2="1">\n'
-        '      <stop offset="0" stop-color="#3457D5"/>\n'
-        '      <stop offset="1" stop-color="#38BDF8"/>\n'
+        '      <stop offset="0" stop-color="#0D9488"/>\n'
+        '      <stop offset="1" stop-color="#2DD4BF"/>\n'
         '    </linearGradient>\n'
         '  </defs>\n'
         '  <rect x="51.2" y="65.8" width="153.6" height="112.6" rx="19.2" '
@@ -237,8 +237,8 @@ def svg_mark() -> str:
         '  <rect x="94.7" y="178.4" width="66.6" height="14.1" rx="5.1" '
         'fill="url(#remit)"/>\n'
         '  <rect x="90.9" y="114.2" width="48.6" height="15.9" rx="7.9" '
-        'fill="#0A0F1C"/>\n'
-        '  <path d="M169.0 122.1 133.1 95.2v53.8Z" fill="#0A0F1C"/>\n'
+        'fill="#0C0E10"/>\n'
+        '  <path d="M169.0 122.1 133.1 95.2v53.8Z" fill="#0C0E10"/>\n'
         '</svg>\n'
     )
 
