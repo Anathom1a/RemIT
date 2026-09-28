@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { ActionButton } from '@/components/admin/action-button'
 import { GrantSubscription } from '@/components/admin/grant-subscription'
+import { ResetLinkButton } from '@/components/admin/reset-link-button'
 import { SessionLimit } from '@/components/admin/session-limit'
 import { TrialGrant } from '@/components/admin/trial-grant'
 import { config } from '@/lib/config'
@@ -146,6 +147,7 @@ export default async function AdminUsersPage({
                 body={{ userId: user.id }}
                 label="Обнулить расход за сегодня"
               />
+              <ResetLinkButton userId={user.id} email={user.email} />
               <ActionButton
                 endpoint="/api/v1/admin/users"
                 body={{ userId: user.id, role: user.role === 'admin' ? 'user' : 'admin' }}

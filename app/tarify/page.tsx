@@ -43,9 +43,9 @@ const COMPARE = [
   { feature: 'Устройств в адресной книге', free: '3', start: '10', pro: '100', business: 'без лимита', corporate: 'без лимита' },
   { feature: 'Неподтверждённый доступ', free: '—', start: 'да', pro: 'да', business: 'да', corporate: 'да' },
   { feature: 'История подключений', free: '7 дней', start: '30 дней', pro: '180 дней', business: '365 дней', corporate: '365 дней' },
-  { feature: 'Общая адресная книга', free: '—', start: '—', pro: '—', business: 'да', corporate: 'да' },
+  { feature: 'Выгрузка журнала в Excel', free: 'да', start: 'да', pro: 'да', business: 'да', corporate: 'да' },
   { feature: 'Оплата по счёту и документы', free: '—', start: '—', pro: 'да', business: 'да', corporate: 'да' },
-  { feature: 'Поддержка', free: 'база знаний', start: 'Telegram', pro: 'приоритет', business: 'менеджер', corporate: 'менеджер' },
+  { feature: 'Поддержка', free: 'база знаний', start: 'через кабинет', pro: 'приоритет', business: 'менеджер', corporate: 'менеджер' },
 ]
 
 export default function PricingPage() {

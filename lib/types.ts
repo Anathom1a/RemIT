@@ -16,6 +16,18 @@ export interface AuthSession {
   expiresAt: string
 }
 
+/**
+ * Одноразовая ссылка для сброса пароля. Храним только хеш токена: сам токен
+ * есть лишь в письме, и утечка базы не даёт войти ни в один аккаунт.
+ */
+export interface PasswordReset {
+  tokenHash: string
+  userId: string
+  createdAt: string
+  expiresAt: string
+  usedAt: string | null
+}
+
 export interface Device {
   id: string
   /** null — устройство видели на сервере, но оно ещё не привязано к аккаунту. */

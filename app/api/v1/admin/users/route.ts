@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { denyIfNotAdmin } from '@/lib/admin'
 import { getStore } from '@/lib/store'
 import { getPlan } from '@/lib/plans'
+import { RESET_TTL_MS, createResetLink } from '@/lib/password-reset'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,13 +41,26 @@ export async function GET(request: Request) {
   return NextResponse.json({ users: rows, total, limit, offset })
 }
 
-/** Смена роли: выдать или снять права администратора. */
+/**
+ * Смена роли: выдать или снять права администратора.
+ * С action: "reset-link" — ссылка для сброса пароля, чтобы передать её
+ * человеку, если письмо не дошло или почта ещё не настроена.
+ */
 export async function POST(request: Request) {
   const denied = await denyIfNotAdmin(request)
   if (denied) return denied
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, any>
   const userId = String(payload.userId ?? '')
+
+  if (payload.action === 'reset-link') {
+    const store = await getStore()
+    const user = await store.findUserById(userId)
+    if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
+    const link = await createResetLink(user.id)
+    return NextResponse.json({ ok: true, link, expiresInMinutes: RESET_TTL_MS / 60000 })
+  }
+
   const role = String(payload.role ?? '')
 
   if (role !== 'admin' && role !== 'user') {

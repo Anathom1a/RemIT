@@ -19,6 +19,17 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 
 CREATE INDEX IF NOT EXISTS auth_sessions_user_idx ON auth_sessions(user_id);
 
+-- Одноразовые ссылки для сброса пароля. Хранится только хеш токена.
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets(user_id, created_at DESC);
+
 -- Устройства с установленным клиентом. user_id пустой, пока устройство
 -- не привязано к аккаунту в личном кабинете.
 CREATE TABLE IF NOT EXISTS devices (
@@ -94,6 +105,9 @@ CREATE TABLE IF NOT EXISTS conn_sessions (
 
 CREATE INDEX IF NOT EXISTS conn_sessions_host_idx ON conn_sessions(host_id) WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS conn_sessions_subject_idx ON conn_sessions(subject_key, started_at DESC);
+-- История подключений к устройствам аккаунта и очистка по сроку хранения.
+CREATE INDEX IF NOT EXISTS conn_sessions_host_started_idx ON conn_sessions(host_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS conn_sessions_started_idx ON conn_sessions(started_at);
 
 -- Суточный расход времени. subject_key: user:<id> или device:<rustdesk_id>.
 CREATE TABLE IF NOT EXISTS usage_daily (

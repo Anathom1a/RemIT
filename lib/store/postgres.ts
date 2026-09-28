@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Pool } from 'pg'
 import type { Store } from './index'
 import type {
+  PasswordReset,
   AuthSession,
   ConnSession,
   Device,
@@ -180,6 +181,63 @@ export class PostgresStore implements Store {
 
   async deleteAuthSession(tokenHash: string): Promise<void> {
     await this.query('DELETE FROM auth_sessions WHERE token_hash = $1', [tokenHash])
+  }
+
+  async deleteUserAuthSessions(userId: string): Promise<void> {
+    await this.query('DELETE FROM auth_sessions WHERE user_id = $1', [userId])
+  }
+
+  async createPasswordReset(reset: PasswordReset): Promise<void> {
+    await this.query(
+      `INSERT INTO password_resets (token_hash, user_id, created_at, expires_at, used_at)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [reset.tokenHash, reset.userId, reset.createdAt, reset.expiresAt, reset.usedAt],
+    )
+  }
+
+  async findPasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null> {
+    const rows = await this.query(
+      'SELECT * FROM password_resets WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2',
+      [tokenHash, now],
+    )
+    return rows[0] ? this.toPasswordReset(rows[0]) : null
+  }
+
+  async consumePasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null> {
+    // Одним запросом: проверка и погашение не разрываются, и две одновременные
+    // отправки формы не сменят пароль дважды.
+    const rows = await this.query(
+      `UPDATE password_resets SET used_at = $2
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2
+       RETURNING *`,
+      [tokenHash, now],
+    )
+    return rows[0] ? this.toPasswordReset(rows[0]) : null
+  }
+
+  async invalidatePasswordResets(userId: string, now: string): Promise<void> {
+    await this.query('UPDATE password_resets SET used_at = $2 WHERE user_id = $1 AND used_at IS NULL', [
+      userId,
+      now,
+    ])
+  }
+
+  async countRecentPasswordResets(userId: string, since: string): Promise<number> {
+    const rows = await this.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM password_resets WHERE user_id = $1 AND created_at >= $2',
+      [userId, since],
+    )
+    return Number(rows[0]?.count ?? 0)
+  }
+
+  private toPasswordReset(row: Row): PasswordReset {
+    return {
+      tokenHash: row.token_hash,
+      userId: row.user_id,
+      createdAt: iso(row.created_at)!,
+      expiresAt: iso(row.expires_at)!,
+      usedAt: iso(row.used_at),
+    }
   }
 
   async upsertDevice(device: Device): Promise<void> {
@@ -372,6 +430,33 @@ export class PostgresStore implements Store {
     }
     const rows = await this.query(`SELECT * FROM conn_sessions WHERE ${conditions.join(' AND ')}`, params)
     return rows.map((row) => this.toConnSession(row))
+  }
+
+  async listConnSessionsForHistory(
+    subjectKeys: string[],
+    hostIds: string[],
+    since: string,
+    limit: number,
+  ): Promise<ConnSession[]> {
+    if (subjectKeys.length === 0 && hostIds.length === 0) return []
+    const rows = await this.query(
+      `SELECT * FROM conn_sessions
+       WHERE (subject_key = ANY($1) OR host_id = ANY($2)) AND started_at >= $3
+       ORDER BY started_at DESC LIMIT $4`,
+      [subjectKeys, hostIds, since, limit],
+    )
+    return rows.map((row) => this.toConnSession(row))
+  }
+
+  async deleteConnSessionsBefore(before: string): Promise<number> {
+    // Идущие сессии не трогаем, даже если начались давно.
+    const rows = await this.query<{ count: string }>(
+      `WITH removed AS (
+         DELETE FROM conn_sessions WHERE started_at < $1 AND ended_at IS NOT NULL RETURNING 1
+       ) SELECT count(*)::text AS count FROM removed`,
+      [before],
+    )
+    return Number(rows[0]?.count ?? 0)
   }
 
   async countLimitCuts(subjectKey: string, since: string): Promise<{ count: number; lastAt: string | null }> {

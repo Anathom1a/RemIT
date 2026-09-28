@@ -162,7 +162,7 @@ export default function BusinessPage() {
               <p className="mt-4 leading-relaxed text-text-secondary">
                 {business.tagline}. {formatPrice(business.priceMonthly)} в месяц или{' '}
                 {formatPrice(business.priceYearly)} за год: до {business.concurrentSessions} одновременных
-                сессий, общая адресная книга, журнал действий и выгрузка отчётов.
+                сессий, история подключений за год и выгрузка отчёта по времени в Excel.
               </p>
               <ul className="mt-6 space-y-2.5 text-sm text-text-secondary">
                 {business.features.map((feature) => (

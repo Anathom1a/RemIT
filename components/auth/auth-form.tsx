@@ -63,6 +63,13 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
         placeholder={mode === 'register' ? 'Минимум 8 символов' : ''}
         required
       />
+      {mode === 'login' && (
+        <p className="-mt-2 text-right text-sm">
+          <a href="/vosstanovlenie" className="text-text-muted underline decoration-dotted hover:text-text-primary">
+            Забыли пароль?
+          </a>
+        </p>
+      )}
 
       {error && (
         <p className="rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">{error}</p>
@@ -75,7 +82,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   )
 }
 
-function Field({
+export function Field({
   label,
   ...props
 }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {

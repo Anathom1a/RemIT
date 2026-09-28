@@ -16,6 +16,8 @@ export interface Plan {
   concurrentSessions: number
   /** Сколько устройств можно закрепить за аккаунтом. null — без лимита. */
   devices: number | null
+  /** За сколько дней в кабинете видна история подключений и её выгрузка. */
+  historyDays: number
   features: string[]
   highlighted?: boolean
   /**
@@ -39,6 +41,7 @@ export const PLANS: Plan[] = [
     dailySeconds: config.quota.freeSecondsPerDay,
     concurrentSessions: 1,
     devices: 3,
+    historyDays: 7,
     features: [
       '3 часа активных сессий в сутки',
       'Счётчик обнуляется в 00:00 МСК',
@@ -56,12 +59,13 @@ export const PLANS: Plan[] = [
     dailySeconds: null,
     concurrentSessions: 1,
     devices: 10,
+    historyDays: 30,
     features: [
       'Без лимита по времени',
       '1 одновременная сессия',
       'До 10 устройств в адресной книге',
       'История подключений 30 дней',
-      'Поддержка в Telegram',
+      'Поддержка через личный кабинет',
     ],
   },
   {
@@ -73,6 +77,7 @@ export const PLANS: Plan[] = [
     dailySeconds: null,
     concurrentSessions: 3,
     devices: 100,
+    historyDays: 180,
     features: [
       'Без лимита по времени',
       '3 одновременные сессии',
@@ -93,11 +98,12 @@ export const PLANS: Plan[] = [
     dailySeconds: null,
     concurrentSessions: 10,
     devices: null,
+    historyDays: 365,
     features: [
       'Без лимита по времени и устройствам',
       '10 одновременных сессий',
-      'Общая адресная книга команды',
-      'Журнал действий и выгрузка отчётов',
+      'История подключений за год',
+      'Выгрузка журнала и отчёта по времени в Excel',
       'Договор и закрывающие документы',
       'Пробный период до 30 дней по заявке',
       'Выделенный менеджер',
@@ -114,11 +120,12 @@ export const PLANS: Plan[] = [
     // Значение по умолчанию: реальное число задаётся в подписке клиента.
     concurrentSessions: 25,
     devices: null,
+    historyDays: 365,
     features: [
       'Одновременные сессии без потолка — 25, 50, 100 и больше',
       'Число сессий меняется по звонку, без смены тарифа',
       'Без лимита по времени и устройствам',
-      'Общая адресная книга и журнал действий',
+      'История подключений за год и выгрузка в Excel',
       'Пробный период до 30 дней по заявке',
       'Выделенный сервер под ваш контур по запросу',
       'Договор, счёт и закрывающие документы',

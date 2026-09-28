@@ -110,6 +110,23 @@ export const config = {
     metrikaId: env('REMIT_YANDEX_METRIKA_ID'),
   },
 
+  /**
+   * Почта для писем пользователям: восстановление пароля. Подходит любой
+   * SMTP — почта на домене (Яндекс 360, Mail.ru для бизнеса) или сервис
+   * рассылок. Пока хост не задан, письма не отправляются, а в админке
+   * висит напоминание.
+   */
+  mail: {
+    host: env('REMIT_SMTP_HOST'),
+    port: envInt('REMIT_SMTP_PORT', 465),
+    /** true — TLS сразу (порт 465), false — STARTTLS (порт 587). */
+    secure: env('REMIT_SMTP_SECURE', 'true') === 'true',
+    user: env('REMIT_SMTP_USER'),
+    password: env('REMIT_SMTP_PASSWORD'),
+    /** Отправитель: «RemIT <noreply@remit.su>». */
+    from: env('REMIT_MAIL_FROM', 'RemIT <noreply@remit.su>'),
+  },
+
   /** Уведомления о заявках: телеграм-бот вместо почты, пока её нет. */
   notifications: {
     telegramBotToken: env('REMIT_TELEGRAM_BOT_TOKEN'),

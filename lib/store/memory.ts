@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Store } from './index'
 import type {
   AuthSession,
+  PasswordReset,
   ConnSession,
   Device,
   Lead,
@@ -17,6 +18,7 @@ import type {
 interface Snapshot {
   users: User[]
   authSessions: AuthSession[]
+  passwordResets: PasswordReset[]
   devices: Device[]
   subscriptions: Subscription[]
   payments: Payment[]
@@ -41,6 +43,7 @@ interface Snapshot {
 export class MemoryStore implements Store {
   private users = new Map<string, User>()
   private authSessions = new Map<string, AuthSession>()
+  private passwordResets = new Map<string, PasswordReset>()
   private devices = new Map<string, Device>()
   private subscriptions = new Map<string, Subscription>()
   private payments = new Map<string, Payment>()
@@ -73,6 +76,7 @@ export class MemoryStore implements Store {
       const snapshot = JSON.parse(await fs.readFile(target, 'utf8')) as Partial<Snapshot>
       this.users = new Map(snapshot.users?.map((u) => [u.id, u]))
       this.authSessions = new Map(snapshot.authSessions?.map((s) => [s.tokenHash, s]))
+      this.passwordResets = new Map(snapshot.passwordResets?.map((r) => [r.tokenHash, r]))
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
       this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, s]))
       // kind, fromPlan и upgradeUntil появились позже: у старых записей их нет.
@@ -101,6 +105,7 @@ export class MemoryStore implements Store {
     const snapshot: Snapshot = {
       users: [...this.users.values()],
       authSessions: [...this.authSessions.values()],
+      passwordResets: [...this.passwordResets.values()],
       devices: [...this.devices.values()],
       subscriptions: [...this.subscriptions.values()],
       payments: [...this.payments.values()],
@@ -177,6 +182,49 @@ export class MemoryStore implements Store {
     await this.sync()
     this.authSessions.delete(tokenHash)
     await this.persist()
+  }
+
+  async deleteUserAuthSessions(userId: string): Promise<void> {
+    await this.sync()
+    for (const [key, session] of this.authSessions) {
+      if (session.userId === userId) this.authSessions.delete(key)
+    }
+    await this.persist()
+  }
+
+  async createPasswordReset(reset: PasswordReset): Promise<void> {
+    await this.sync()
+    this.passwordResets.set(reset.tokenHash, reset)
+    await this.persist()
+  }
+
+  async findPasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null> {
+    await this.sync()
+    const reset = this.passwordResets.get(tokenHash)
+    if (!reset || reset.usedAt || reset.expiresAt <= now) return null
+    return reset
+  }
+
+  async consumePasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null> {
+    const reset = await this.findPasswordReset(tokenHash, now)
+    if (!reset) return null
+    const used = { ...reset, usedAt: now }
+    this.passwordResets.set(tokenHash, used)
+    await this.persist()
+    return used
+  }
+
+  async invalidatePasswordResets(userId: string, now: string): Promise<void> {
+    await this.sync()
+    for (const [key, reset] of this.passwordResets) {
+      if (reset.userId === userId && !reset.usedAt) this.passwordResets.set(key, { ...reset, usedAt: now })
+    }
+    await this.persist()
+  }
+
+  async countRecentPasswordResets(userId: string, since: string): Promise<number> {
+    await this.sync()
+    return [...this.passwordResets.values()].filter((r) => r.userId === userId && r.createdAt >= since).length
   }
 
   async upsertDevice(device: Device): Promise<void> {
@@ -302,6 +350,34 @@ export class MemoryStore implements Store {
       .filter((s) => keys.has(s.subjectKey))
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
       .slice(0, limit)
+  }
+
+  async listConnSessionsForHistory(
+    subjectKeys: string[],
+    hostIds: string[],
+    since: string,
+    limit: number,
+  ): Promise<ConnSession[]> {
+    await this.sync()
+    const keys = new Set(subjectKeys)
+    const hosts = new Set(hostIds)
+    return [...this.connSessions.values()]
+      .filter((s) => (keys.has(s.subjectKey) || hosts.has(s.hostId)) && s.startedAt >= since)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .slice(0, limit)
+  }
+
+  async deleteConnSessionsBefore(before: string): Promise<number> {
+    await this.sync()
+    let removed = 0
+    for (const [key, session] of this.connSessions) {
+      if (session.startedAt < before && session.endedAt) {
+        this.connSessions.delete(key)
+        removed += 1
+      }
+    }
+    if (removed > 0) await this.persist()
+    return removed
   }
 
   async countLimitCuts(subjectKey: string, since: string): Promise<{ count: number; lastAt: string | null }> {

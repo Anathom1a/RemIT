@@ -139,7 +139,7 @@ export default function HomePage() {
               { value: `${freeHours} часа`, label: 'бесплатно каждый день' },
               { value: '< 60 мс', label: 'задержка на российских каналах' },
               { value: '60 FPS', label: 'при передаче экрана' },
-              { value: '24/7', label: 'поддержка в Telegram' },
+              { value: '1 файл', label: 'и никаких настроек' },
             ].map((item) => (
               <div key={item.label}>
                 <p className="text-2xl font-semibold text-text-primary sm:text-3xl">{item.value}</p>

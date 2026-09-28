@@ -7,6 +7,7 @@ import {
   normalizeEmail,
   sessionCookieOptions,
 } from '@/lib/auth'
+import { clientIp, consumeLimit, tooManyAttempts } from '@/lib/rate-limit'
 import { getStore } from '@/lib/store'
 import { getRuntimeSettings } from '@/lib/settings'
 import type { User } from '@/lib/types'
@@ -20,6 +21,14 @@ export async function POST(request: Request) {
       { error: 'Регистрация временно закрыта. Напишите в поддержку, мы создадим аккаунт вручную.' },
       { status: 403 },
     )
+  }
+
+  // Регистрации с одного адреса: 10 в час. Хватает офису, мешает ферме
+  // бесплатных аккаунтов и перебору «занята ли почта».
+  const check = consumeLimit(`register-ip:${clientIp(request)}`, 10, 60 * 60 * 1000)
+  if (!check.allowed) {
+    const { body, headers } = tooManyAttempts(check.retryAfter)
+    return NextResponse.json(body, { status: 429, headers })
   }
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, any>

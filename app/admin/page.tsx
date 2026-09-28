@@ -6,6 +6,7 @@ import { formatPrice } from '@/lib/plans'
 import { humanDuration } from '@/lib/time'
 import { config } from '@/lib/config'
 import { missingLegalFields } from '@/lib/legal'
+import { isMailConfigured } from '@/lib/mail'
 import { getLatestRelease } from '@/lib/updates'
 
 export const metadata: Metadata = { title: 'Админка' }
@@ -45,6 +46,14 @@ export default async function AdminOverviewPage() {
         ? `Версия ${release.version}. Страница загрузки раздаёт его файлы.`
         : 'Выпуска нет — на странице загрузки вместо кнопок написано «скоро появится». Загрузите сборки в разделе «Обновления».',
       href: '/admin/obnovleniya',
+    },
+    {
+      ok: isMailConfigured(),
+      title: 'Почта для писем пользователям',
+      detail: isMailConfigured()
+        ? 'Настроена.'
+        : 'Не задан REMIT_SMTP_HOST — письма для восстановления пароля не уходят. Пока можно выдать ссылку для сброса вручную: «Пользователи» → карточка.',
+      href: '/admin/polzovateli',
     },
     {
       ok: billingReady,

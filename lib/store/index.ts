@@ -1,5 +1,6 @@
 import type {
   AuthSession,
+  PasswordReset,
   ConnSession,
   Device,
   Lead,
@@ -28,6 +29,20 @@ export interface Store {
   createAuthSession(session: AuthSession): Promise<void>
   findAuthSession(tokenHash: string): Promise<AuthSession | null>
   deleteAuthSession(tokenHash: string): Promise<void>
+  /** Выход на всех устройствах — после смены пароля. */
+  deleteUserAuthSessions(userId: string): Promise<void>
+
+  createPasswordReset(reset: PasswordReset): Promise<void>
+  /**
+   * Погашает ссылку: возвращает запись, только если она ещё не использована
+   * и не истекла. Атомарно — двумя вкладками одну ссылку не использовать.
+   */
+  consumePasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null>
+  /** Действующая ссылка (для показа формы) без погашения. */
+  findPasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null>
+  /** Гасит все неиспользованные ссылки пользователя. */
+  invalidatePasswordResets(userId: string, now: string): Promise<void>
+  countRecentPasswordResets(userId: string, since: string): Promise<number>
 
   upsertDevice(device: Device): Promise<void>
   findDeviceByRustdeskId(rustdeskId: string): Promise<Device | null>
@@ -51,6 +66,18 @@ export interface Store {
   saveConnSession(session: ConnSession): Promise<void>
   listActiveConnSessions(filter: { hostId?: string; subjectKey?: string }): Promise<ConnSession[]>
   listRecentConnSessions(subjectKeys: string[], limit: number): Promise<ConnSession[]>
+  /**
+   * История подключений аккаунта: сессии, которые записаны на него или его
+   * устройства (subjectKeys), и подключения к его устройствам (hostIds).
+   */
+  listConnSessionsForHistory(
+    subjectKeys: string[],
+    hostIds: string[],
+    since: string,
+    limit: number,
+  ): Promise<ConnSession[]>
+  /** Удаляет журнал старше даты — срок хранения по политике обработки данных. */
+  deleteConnSessionsBefore(before: string): Promise<number>
   /** Сколько сессий разорвано из-за лимита одновременных сессий с момента since. */
   countLimitCuts(subjectKey: string, since: string): Promise<{ count: number; lastAt: string | null }>
 

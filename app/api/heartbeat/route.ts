@@ -1,4 +1,5 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
+import { purgeOldHistory } from '@/lib/history'
 import { processHeartbeat } from '@/lib/quota'
 import { getClientPolicy } from '@/lib/policy'
 import { proxyToRustdeskApi } from '@/lib/upstream'
@@ -43,6 +44,9 @@ export async function POST(request: Request) {
     version: payload.ver ? String(payload.ver) : undefined,
     conns,
   })
+
+  // Журнал старше срока хранения чистим попутно, не чаще раза в шесть часов.
+  after(() => purgeOldHistory().catch((error) => console.error('[history] очистка журнала:', error)))
 
   if (result.disconnect.length > 0) {
     const fromUpstream = Array.isArray(body.disconnect) ? (body.disconnect as number[]) : []
