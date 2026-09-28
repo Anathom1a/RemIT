@@ -317,6 +317,18 @@ export class MemoryStore implements Store {
     return count
   }
 
+  async revokeShareClientTokens(shareToken: string, at: string): Promise<void> {
+    await this.sync()
+    let changed = false
+    for (const [key, token] of this.clientTokens) {
+      if (token.shareToken === shareToken && !token.revokedAt) {
+        this.clientTokens.set(key, { ...token, revokedAt: at })
+        changed = true
+      }
+    }
+    if (changed) await this.persist()
+  }
+
   async listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]> {
     await this.sync()
     return [...this.clientTokens.values()]

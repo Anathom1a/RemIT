@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
-import { hasWebClient, shareIsUsable } from '@/lib/webclient'
+import { hasWebClient, openShare } from '@/lib/webclient'
 import { webclientPage } from '@/lib/webclient-page'
 
 export const dynamic = 'force-dynamic'
 
-function page(shareToken?: string): Response {
-  return new Response(webclientPage(shareToken), {
+function page(share?: { shareToken: string; guestToken: string }): Response {
+  return new Response(webclientPage(share), {
     headers: {
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'no-store',
@@ -25,7 +25,8 @@ export async function GET(request: Request) {
   const url = new URL(request.url)
   const share = url.searchParams.get('share') ?? ''
   if (share) {
-    if (await shareIsUsable(share)) return page(share)
+    const opened = await openShare(share, request)
+    if (opened) return page(opened)
     return NextResponse.redirect(new URL('/webclient/ssylka-ne-deystvuet', url), 303)
   }
 

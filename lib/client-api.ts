@@ -64,10 +64,23 @@ export interface LoginDevice {
   os: string
 }
 
+export interface TokenOptions {
+  /** share — гостевой токен веб-клиента: одно устройство, без API. */
+  scope?: 'full' | 'share'
+  peerId?: string
+  shareToken?: string
+  ttlSeconds?: number
+}
+
 /** Выдаёт токен клиенту после входа. */
-export async function issueClientToken(user: User, device: LoginDevice, request: Request): Promise<string> {
+export async function issueClientToken(
+  user: User,
+  device: LoginDevice,
+  request: Request,
+  options: TokenOptions = {},
+): Promise<string> {
   const now = Date.now()
-  const expiresAt = now + config.client.tokenTtlSeconds * 1000
+  const expiresAt = now + (options.ttlSeconds ?? config.client.tokenTtlSeconds) * 1000
   const token = config.client.jwtKey
     ? signJwt(
         { user_id: numericUserId(user.id), exp: Math.floor(expiresAt / 1000), jti: randomBytes(8).toString('hex') },
@@ -88,6 +101,9 @@ export async function issueClientToken(user: User, device: LoginDevice, request:
     lastUsedAt: new Date(now).toISOString(),
     expiresAt: new Date(expiresAt).toISOString(),
     revokedAt: null,
+    scope: options.scope ?? 'full',
+    peerId: options.peerId ?? '',
+    shareToken: options.shareToken ?? '',
   }
   await store.createClientToken(record)
   return token
@@ -98,11 +114,23 @@ export interface ClientAuth {
   token: ClientToken
 }
 
-/** Проверяет `Authorization: Bearer <токен>`; null — не вошёл или вход отозван. */
-export async function authenticateClient(request: Request): Promise<ClientAuth | null> {
+/**
+ * Проверяет `Authorization: Bearer <токен>`; null — не вошёл или вход отозван.
+ * Гостевые токены (scope share) по умолчанию не пускаем: API им не положено.
+ */
+export async function authenticateClient(
+  request: Request,
+  options: { allowShare?: boolean } = {},
+): Promise<ClientAuth | null> {
   const header = request.headers.get('authorization') ?? ''
   if (!header.toLowerCase().startsWith('bearer ')) return null
-  const raw = header.slice(7).trim()
+  const auth = await clientTokenInfo(header.slice(7).trim())
+  if (!auth || (auth.token.scope === 'share' && !options.allowShare)) return null
+  return auth
+}
+
+/** Токен и его владелец по сырому значению токена. */
+export async function clientTokenInfo(raw: string): Promise<ClientAuth | null> {
   if (!raw) return null
 
   const now = Date.now()
@@ -121,10 +149,10 @@ export async function authenticateClient(request: Request): Promise<ClientAuth |
   return { user, token }
 }
 
-/** Аккаунт по токену входа — для проверки квоты из hbbs. */
+/** Аккаунт по обычному (не гостевому) токену входа. */
 export async function userByClientToken(raw: string): Promise<User | null> {
-  const auth = await authenticateClient(new Request('http://local/', { headers: { authorization: `Bearer ${raw}` } }))
-  return auth?.user ?? null
+  const auth = await clientTokenInfo(raw)
+  return auth && auth.token.scope === 'full' ? auth.user : null
 }
 
 export async function revokeClientTokenByRaw(request: Request): Promise<void> {
@@ -147,6 +175,11 @@ export function userPayload(user: User) {
   }
 }
 
+/** Гость по ссылке веб-клиента: имя владельца не показываем. */
+export function guestPayload() {
+  return { name: 'Гость', display_name: 'Гость', email: '', note: '', is_admin: false, status: 1, info: {} }
+}
+
 /** Тело запроса как JSON; при ошибке — null. */
 export async function readJson<T = Record<string, unknown>>(request: Request): Promise<T | null> {
   try {
@@ -165,9 +198,10 @@ type RouteContext = { params: Promise<Record<string, string>> }
  */
 export function clientRoute(
   handler: (auth: ClientAuth, request: Request, params: Record<string, string>) => Promise<Response>,
+  options: { allowShare?: boolean } = {},
 ) {
   return async (request: Request, context: RouteContext): Promise<Response> => {
-    const auth = await authenticateClient(request)
+    const auth = await authenticateClient(request, options)
     if (!auth) return unauthorized()
     try {
       return await handler(auth, request, context?.params ? await context.params : {})

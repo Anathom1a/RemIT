@@ -274,14 +274,17 @@ export class PostgresStore implements Store {
       lastUsedAt: iso(row.last_used_at)!,
       expiresAt: iso(row.expires_at)!,
       revokedAt: iso(row.revoked_at),
+      scope: row.scope === 'share' ? 'share' : 'full',
+      peerId: row.peer_id ?? '',
+      shareToken: row.share_token ?? '',
     }
   }
 
   async createClientToken(token: ClientToken): Promise<void> {
     await this.query(
       `INSERT INTO client_tokens (token_hash, user_id, device_id, uuid, device_name, os, ip, created_at, last_used_at,
-                                  expires_at, revoked_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+                                  expires_at, revoked_at, scope, peer_id, share_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         token.tokenHash,
         token.userId,
@@ -294,6 +297,9 @@ export class PostgresStore implements Store {
         token.lastUsedAt,
         token.expiresAt,
         token.revokedAt,
+        token.scope,
+        token.peerId,
+        token.shareToken,
       ],
     )
   }
@@ -322,6 +328,13 @@ export class PostgresStore implements Store {
       [userId, at],
     )
     return rows.length
+  }
+
+  async revokeShareClientTokens(shareToken: string, at: string): Promise<void> {
+    await this.query('UPDATE client_tokens SET revoked_at = $2 WHERE share_token = $1 AND revoked_at IS NULL', [
+      shareToken,
+      at,
+    ])
   }
 
   async listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]> {

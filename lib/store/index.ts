@@ -61,6 +61,8 @@ export interface Store {
   revokeClientToken(tokenHash: string, at: string): Promise<void>
   /** Выход из клиента на всех устройствах; возвращает, сколько входов закрыто. */
   revokeUserClientTokens(userId: string, at: string): Promise<number>
+  /** Отзыв гостевых токенов, выданных по ссылке веб-клиента. */
+  revokeShareClientTokens(shareToken: string, at: string): Promise<void>
   /** Новые сверху. Без userId — все (для админки). */
   listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]>
   /** Последний действующий вход с устройства — чтобы узнать аккаунт веб-клиента. */

@@ -161,6 +161,14 @@ export interface ClientToken {
   lastUsedAt: string
   expiresAt: string
   revokedAt: string | null
+  /**
+   * full — обычный вход; share — гость по ссылке веб-клиента: токен годится
+   * только для соединения с одним устройством (peerId) и не открывает API.
+   */
+  scope: 'full' | 'share'
+  peerId: string
+  /** Гостевая ссылка, по которой выдан токен (для отзыва вместе с ней). */
+  shareToken: string
 }
 
 /** Запись адресной книги — поля в том виде, в каком их понимает клиент RustDesk. */

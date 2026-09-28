@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { isServiceRequest } from '@/lib/auth'
-import { userByClientToken } from '@/lib/client-api'
+import { clientTokenInfo, userByClientToken } from '@/lib/client-api'
+import { WEBCLIENT_PAID_ONLY, hasWebClient } from '@/lib/webclient'
 import { checkQuota, closeStaleSessions, notePendingController, resolveSubject, userSubject } from '@/lib/quota'
 import { getStore } from '@/lib/store'
 
@@ -13,6 +14,11 @@ export const dynamic = 'force-dynamic'
  * Тело: { "id": "<ID управляемого>", "token": "<токен входа управляющего>", "peer_id": "<ID управляющего>" }
  * Токен входа hbbs берёт из punch hole: по нему видно аккаунт того, кто
  * подключается, и лимит проверяется по его тарифу.
+ *
+ * "ws": true — запрос пришёл по WebSocket, то есть из веб-клиента в браузере.
+ * Такой пускаем только с токеном платного подписчика или гостевым токеном
+ * на это самое устройство. Так бесплатный тариф не обойдёт ограничение
+ * своим веб-клиентом или копией нашей страницы.
  * Ответ: { "allowed": true|false, "reason": "...", "message": "текст для клиента" }
  */
 export async function POST(request: Request) {
@@ -37,7 +43,30 @@ export async function POST(request: Request) {
   await closeStaleSessions()
 
   const store = await getStore()
-  const account = typeof payload.token === 'string' && payload.token ? await userByClientToken(payload.token) : null
+  const rawToken = typeof payload.token === 'string' ? payload.token : ''
+
+  if (payload.ws === true) {
+    const auth = rawToken ? await clientTokenInfo(rawToken) : null
+    const allowed =
+      auth !== null &&
+      (auth.token.scope === 'full' || auth.token.peerId === hostId) &&
+      (await hasWebClient(auth.user.id))
+    if (!allowed) {
+      return NextResponse.json({ allowed: false, reason: 'webclient_paid_only', message: WEBCLIENT_PAID_ONLY })
+    }
+    const subject = userSubject(auth!.user.id)
+    notePendingController(hostId, auth!.user.id)
+    const decision = await checkQuota(subject)
+    return NextResponse.json({
+      allowed: decision.allowed,
+      reason: decision.reason,
+      message: decision.message,
+      remaining_seconds: decision.state.remainingSeconds,
+      plan: decision.state.planId,
+    })
+  }
+
+  const account = rawToken ? await userByClientToken(rawToken) : null
   const subject = account ? userSubject(account.id) : await resolveSubject(store, controllerId, hostId)
   // Веб-клиент подключится под ID «web»: запоминаем, чей это вход.
   if (account && hostId) notePendingController(hostId, account.id)

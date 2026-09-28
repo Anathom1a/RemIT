@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { config } from './config'
 import { openSecret, sealSecret } from './secret-box'
+import { issueClientToken } from './client-api'
 import { isPaidPlan } from './plans'
 import { getStore } from './store'
 import type { AbPeer, User, WebShare } from './types'
@@ -71,14 +72,37 @@ export function shareUrl(token: string): string {
   return `https://${config.brand.domain}/webclient?share=${encodeURIComponent(token)}`
 }
 
-/** Живая ли гостевая ссылка — чтобы открыть по ней страницу, не тратя её. */
-export async function shareIsUsable(token: string): Promise<boolean> {
+/** Гостевой токен живёт не дольше ссылки и не больше 12 часов. */
+const GUEST_TOKEN_TTL_SECONDS = 12 * 60 * 60
+
+/**
+ * Страница по гостевой ссылке: если ссылка жива, выдаём гостю токен только
+ * на это устройство — с ним hbbs пустит соединение из браузера. Ссылку при
+ * этом не тратим: одноразовая сгорает, когда гость получит пароль.
+ */
+export async function openShare(token: string, request: Request): Promise<{ shareToken: string; guestToken: string } | null> {
   const store = await getStore()
   const share = token ? await store.findWebShare(token) : null
-  if (!share) return false
-  if (share.expiresAt && share.expiresAt <= new Date().toISOString()) return false
+  if (!share) return null
+  const now = Date.now()
+  if (share.expiresAt && new Date(share.expiresAt).getTime() <= now) return null
   const owner = await store.findUserById(share.userId)
-  return Boolean(owner && owner.status === 'active' && (await hasWebClient(owner.id)))
+  if (!owner || owner.status !== 'active' || !(await hasWebClient(owner.id))) return null
+  const left = share.expiresAt ? Math.floor((new Date(share.expiresAt).getTime() - now) / 1000) : GUEST_TOKEN_TTL_SECONDS
+  const guestToken = await issueClientToken(
+    owner,
+    { deviceId: 'web', uuid: '', deviceName: 'Гостевая ссылка', os: 'браузер' },
+    request,
+    { scope: 'share', peerId: share.peerId, shareToken: share.token, ttlSeconds: Math.max(60, Math.min(left, GUEST_TOKEN_TTL_SECONDS)) },
+  )
+  return { shareToken: share.token, guestToken }
+}
+
+/** Отзыв ссылки владельцем: гостевые токены по ней тоже перестают действовать. */
+export async function revokeShare(token: string): Promise<void> {
+  const store = await getStore()
+  await store.deleteWebShare(token)
+  await store.revokeShareClientTokens(token, new Date().toISOString())
 }
 
 /**

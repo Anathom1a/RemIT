@@ -75,6 +75,11 @@ CREATE TABLE IF NOT EXISTS client_tokens (
     revoked_at   TIMESTAMPTZ
 );
 
+-- Гостевые токены веб-клиента: только одно устройство, без доступа к API.
+ALTER TABLE client_tokens ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'full';
+ALTER TABLE client_tokens ADD COLUMN IF NOT EXISTS peer_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE client_tokens ADD COLUMN IF NOT EXISTS share_token TEXT NOT NULL DEFAULT '';
+
 CREATE INDEX IF NOT EXISTS client_tokens_user_idx ON client_tokens(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS client_tokens_created_idx ON client_tokens(created_at DESC);
 CREATE INDEX IF NOT EXISTS client_tokens_device_idx ON client_tokens(device_id) WHERE revoked_at IS NULL;
