@@ -51,10 +51,11 @@
 | `/` | RemIT web | витрина, тарифы, кабинет |
 | `/api/heartbeat` | RemIT web → rustdesk-api | учёт времени + принудительный разрыв |
 | `/api/audit/conn` | RemIT web → rustdesk-api | начало и конец сессии, кто к кому |
+| `/api/login` | RemIT web → rustdesk-api | вход в клиенте почтой и паролем сайта ([ACCOUNTS.md](ACCOUNTS.md)) |
 | `/api/v1/*` | RemIT web | регистрация, устройства, подписки, квоты |
 | `/admin`, `/api/v1/admin/*` | RemIT web | админка и административное API |
 | `/api/version/latest`, `/api/v1/updates/*` | RemIT web | сервер обновлений клиента |
-| `/api/*` | rustdesk-api | вход клиента, адресная книга, синхронизация |
+| `/api/*` | rustdesk-api | адресная книга, выход, синхронизация |
 | `/_admin/`, `/webclient/` | rustdesk-api | панель администратора и веб-клиент |
 
 Сайт и панель делят домен и префикс `/api/`, причём панель забирает его

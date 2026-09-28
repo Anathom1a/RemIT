@@ -8,6 +8,7 @@ import { config } from '@/lib/config'
 import { missingLegalFields } from '@/lib/legal'
 import { isMailConfigured } from '@/lib/mail'
 import { getLatestRelease } from '@/lib/updates'
+import { panelLinkEnabled } from '@/lib/panel'
 
 export const metadata: Metadata = { title: 'Админка' }
 export const dynamic = 'force-dynamic'
@@ -54,6 +55,13 @@ export default async function AdminOverviewPage() {
         ? 'Настроена.'
         : 'Не задан REMIT_SMTP_HOST — письма для восстановления пароля не уходят. Пока можно выдать ссылку для сброса вручную: «Пользователи» → карточка.',
       href: '/admin/polzovateli',
+    },
+    {
+      ok: panelLinkEnabled(),
+      title: 'Единый вход в клиенте',
+      detail: panelLinkEnabled()
+        ? 'Настроен: в клиенте входят почтой и паролем от кабинета.'
+        : 'Не заданы REMIT_PANEL_ADMIN_USER и REMIT_PANEL_ADMIN_PASSWORD — в клиенте работают только логины панели. См. docs/ACCOUNTS.md.',
     },
     {
       ok: billingReady,

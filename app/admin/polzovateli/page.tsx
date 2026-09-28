@@ -29,12 +29,13 @@ export default async function AdminUsersPage({
 
   const rows = await Promise.all(
     users.map(async (user) => {
-      const [subscription, quota, devices] = await Promise.all([
+      const [subscription, quota, devices, clientAccount] = await Promise.all([
         store.getActiveSubscription(user.id),
         getQuotaState(userSubject(user.id)),
         store.listDevicesByUser(user.id),
+        store.findPanelAccount(user.id),
       ])
-      return { user, subscription, quota, devices: devices.length }
+      return { user, subscription, quota, devices: devices.length, clientLogin: clientAccount?.panelUsername ?? null }
     }),
   )
 
@@ -67,7 +68,7 @@ export default async function AdminUsersPage({
           <p className="card p-8 text-center text-sm text-text-muted">Ничего не найдено.</p>
         )}
 
-        {rows.map(({ user, subscription, quota, devices }) => (
+        {rows.map(({ user, subscription, quota, devices, clientLogin }) => (
           <div key={user.id} className="card p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
@@ -113,6 +114,10 @@ export default async function AdminUsersPage({
                 <div>
                   <dt className="text-xs text-text-muted">Устройств</dt>
                   <dd className="tabular-nums">{devices}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-text-muted">Логин в панели</dt>
+                  <dd className="truncate font-mono text-xs">{clientLogin ?? '—'}</dd>
                 </div>
               </dl>
             </div>

@@ -30,6 +30,19 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets(user_id, created_at DESC);
 
+-- Единый аккаунт: в клиенте входят почтой и паролем сайта, а сайт входит в
+-- панель rustdesk-api от имени связанного пользователя. secret — пароль в
+-- панели, зашифрованный REMIT_AUTH_SECRET; человек его не знает.
+CREATE TABLE IF NOT EXISTS panel_accounts (
+    user_id        TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    panel_user_id  INTEGER NOT NULL UNIQUE,
+    panel_username TEXT NOT NULL UNIQUE,
+    secret         TEXT NOT NULL,
+    origin         TEXT NOT NULL DEFAULT 'created',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Устройства с установленным клиентом. user_id пустой, пока устройство
 -- не привязано к аккаунту в личном кабинете.
 CREATE TABLE IF NOT EXISTS devices (

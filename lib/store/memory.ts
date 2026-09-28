@@ -4,6 +4,7 @@ import type { Store } from './index'
 import type {
   AuthSession,
   PasswordReset,
+  PanelAccount,
   ConnSession,
   Device,
   Lead,
@@ -19,6 +20,7 @@ interface Snapshot {
   users: User[]
   authSessions: AuthSession[]
   passwordResets: PasswordReset[]
+  panelAccounts: PanelAccount[]
   devices: Device[]
   subscriptions: Subscription[]
   payments: Payment[]
@@ -44,6 +46,7 @@ export class MemoryStore implements Store {
   private users = new Map<string, User>()
   private authSessions = new Map<string, AuthSession>()
   private passwordResets = new Map<string, PasswordReset>()
+  private panelAccounts = new Map<string, PanelAccount>()
   private devices = new Map<string, Device>()
   private subscriptions = new Map<string, Subscription>()
   private payments = new Map<string, Payment>()
@@ -77,6 +80,7 @@ export class MemoryStore implements Store {
       this.users = new Map(snapshot.users?.map((u) => [u.id, u]))
       this.authSessions = new Map(snapshot.authSessions?.map((s) => [s.tokenHash, s]))
       this.passwordResets = new Map(snapshot.passwordResets?.map((r) => [r.tokenHash, r]))
+      this.panelAccounts = new Map(snapshot.panelAccounts?.map((a) => [a.userId, a]))
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
       this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, s]))
       // kind, fromPlan и upgradeUntil появились позже: у старых записей их нет.
@@ -106,6 +110,7 @@ export class MemoryStore implements Store {
       users: [...this.users.values()],
       authSessions: [...this.authSessions.values()],
       passwordResets: [...this.passwordResets.values()],
+      panelAccounts: [...this.panelAccounts.values()],
       devices: [...this.devices.values()],
       subscriptions: [...this.subscriptions.values()],
       payments: [...this.payments.values()],
@@ -225,6 +230,28 @@ export class MemoryStore implements Store {
   async countRecentPasswordResets(userId: string, since: string): Promise<number> {
     await this.sync()
     return [...this.passwordResets.values()].filter((r) => r.userId === userId && r.createdAt >= since).length
+  }
+
+  async findPanelAccount(userId: string): Promise<PanelAccount | null> {
+    await this.sync()
+    return this.panelAccounts.get(userId) ?? null
+  }
+
+  async findPanelAccountByUsername(panelUsername: string): Promise<PanelAccount | null> {
+    await this.sync()
+    const username = panelUsername.toLowerCase()
+    return [...this.panelAccounts.values()].find((a) => a.panelUsername === username) ?? null
+  }
+
+  async findPanelAccountByPanelUserId(panelUserId: number): Promise<PanelAccount | null> {
+    await this.sync()
+    return [...this.panelAccounts.values()].find((a) => a.panelUserId === panelUserId) ?? null
+  }
+
+  async savePanelAccount(account: PanelAccount): Promise<void> {
+    await this.sync()
+    this.panelAccounts.set(account.userId, account)
+    await this.persist()
   }
 
   async upsertDevice(device: Device): Promise<void> {

@@ -1,11 +1,13 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
+import { ClientLinkForm } from '@/components/cabinet/client-link-form'
 import { DeviceForm } from '@/components/cabinet/device-form'
 import { UnbindButton } from '@/components/cabinet/unbind-button'
 import { getCurrentUser } from '@/lib/auth'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
 import { config } from '@/lib/config'
+import { panelLinkEnabled } from '@/lib/panel'
 
 export const metadata: Metadata = { title: 'Устройства' }
 export const dynamic = 'force-dynamic'
@@ -15,7 +17,11 @@ export default async function DevicesPage() {
   if (!user) redirect('/vhod')
 
   const store = await getStore()
-  const devices = await store.listDevicesByUser(user.id)
+  const [devices, clientAccount] = await Promise.all([
+    store.listDevicesByUser(user.id),
+    store.findPanelAccount(user.id),
+  ])
+  const unified = panelLinkEnabled()
 
   return (
     <div className="space-y-6">
@@ -26,6 +32,34 @@ export default async function DevicesPage() {
           бесплатного тарифа отдельно от вашего аккаунта.
         </p>
       </div>
+
+      {unified && (
+        <div className="card p-6">
+          <h2 className="font-semibold">Вход в клиенте</h2>
+          <p className="mt-1.5 text-sm text-text-secondary">
+            В клиенте {config.brand.name} нажмите «Войти» и введите почту <span className="text-text-primary">{user.email}</span>{' '}
+            и пароль от личного кабинета. Компьютер, с которого вы вошли, сам появится в списке ниже, а адресная
+            книга будет общей на всех ваших устройствах.
+          </p>
+          <p className="mt-3 text-sm text-text-muted">
+            {clientAccount
+              ? clientAccount.origin === 'linked'
+                ? `Прежний аккаунт клиента «${clientAccount.panelUsername}» перенесён в этот аккаунт.`
+                : 'Вы уже входили в клиенте с этим аккаунтом.'
+              : 'Вы ещё не входили в клиенте с этим аккаунтом.'}
+          </p>
+          <details className="group mt-4 rounded-xl border border-white/8 px-4 py-3">
+            <summary className="cursor-pointer text-sm text-text-secondary hover:text-text-primary">
+              Пользовались клиентом с отдельным логином до регистрации на сайте?
+            </summary>
+            <p className="mt-3 mb-4 text-sm text-text-secondary">
+              Введите прежние логин и пароль — перенесём аккаунт вместе с адресной книгой. После переноса в
+              клиенте входите почтой и паролем от кабинета, прежний пароль перестанет действовать.
+            </p>
+            <ClientLinkForm />
+          </details>
+        </div>
+      )}
 
       <div className="card p-6">
         <h2 className="font-semibold">Привязать устройство</h2>

@@ -1,6 +1,7 @@
 import type {
   AuthSession,
   PasswordReset,
+  PanelAccount,
   ConnSession,
   Device,
   Lead,
@@ -43,6 +44,13 @@ export interface Store {
   /** Гасит все неиспользованные ссылки пользователя. */
   invalidatePasswordResets(userId: string, now: string): Promise<void>
   countRecentPasswordResets(userId: string, since: string): Promise<number>
+
+  /** Связь с аккаунтом панели rustdesk-api — для входа в клиент. */
+  findPanelAccount(userId: string): Promise<PanelAccount | null>
+  findPanelAccountByUsername(panelUsername: string): Promise<PanelAccount | null>
+  findPanelAccountByPanelUserId(panelUserId: number): Promise<PanelAccount | null>
+  /** Создаёт или заменяет связь аккаунта сайта. */
+  savePanelAccount(account: PanelAccount): Promise<void>
 
   upsertDevice(device: Device): Promise<void>
   findDeviceByRustdeskId(rustdeskId: string): Promise<Device | null>

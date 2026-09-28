@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createUserSession, hashPassword, normalizeEmail } from './auth'
+import { rotatePanelPassword } from './panel'
 import { config } from './config'
 import { escapeHtml, sendMail } from './mail'
 import { getStore } from './store'
@@ -119,6 +120,9 @@ export async function completePasswordReset(token: string, password: string, now
   // Остальные ссылки из прошлых писем больше не нужны, старые сессии — тоже.
   await store.invalidatePasswordResets(user.id, nowIso)
   await store.deleteUserAuthSessions(user.id)
+  // Аккаунт общий с клиентом: новый пароль в панели завершает и входы в
+  // клиенте. Панель недоступна — пароль на сайте всё равно сменён.
+  await rotatePanelPassword(user.id).catch((error) => console.error('[reset] выход из клиента:', error))
 
   const sessionToken = await createUserSession(user.id)
   return { ok: true, user: updated, sessionToken }

@@ -4,6 +4,7 @@ import type { Pool } from 'pg'
 import type { Store } from './index'
 import type {
   PasswordReset,
+  PanelAccount,
   AuthSession,
   ConnSession,
   Device,
@@ -237,6 +238,57 @@ export class PostgresStore implements Store {
       createdAt: iso(row.created_at)!,
       expiresAt: iso(row.expires_at)!,
       usedAt: iso(row.used_at),
+    }
+  }
+
+  async findPanelAccount(userId: string): Promise<PanelAccount | null> {
+    const rows = await this.query('SELECT * FROM panel_accounts WHERE user_id = $1', [userId])
+    return rows[0] ? this.toPanelAccount(rows[0]) : null
+  }
+
+  async findPanelAccountByUsername(panelUsername: string): Promise<PanelAccount | null> {
+    const rows = await this.query('SELECT * FROM panel_accounts WHERE panel_username = $1', [
+      panelUsername.toLowerCase(),
+    ])
+    return rows[0] ? this.toPanelAccount(rows[0]) : null
+  }
+
+  async findPanelAccountByPanelUserId(panelUserId: number): Promise<PanelAccount | null> {
+    const rows = await this.query('SELECT * FROM panel_accounts WHERE panel_user_id = $1', [panelUserId])
+    return rows[0] ? this.toPanelAccount(rows[0]) : null
+  }
+
+  async savePanelAccount(account: PanelAccount): Promise<void> {
+    await this.query(
+      `INSERT INTO panel_accounts (user_id, panel_user_id, panel_username, secret, origin, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (user_id) DO UPDATE SET
+         panel_user_id = EXCLUDED.panel_user_id,
+         panel_username = EXCLUDED.panel_username,
+         secret = EXCLUDED.secret,
+         origin = EXCLUDED.origin,
+         updated_at = EXCLUDED.updated_at`,
+      [
+        account.userId,
+        account.panelUserId,
+        account.panelUsername,
+        account.secret,
+        account.origin,
+        account.createdAt,
+        account.updatedAt,
+      ],
+    )
+  }
+
+  private toPanelAccount(row: Row): PanelAccount {
+    return {
+      userId: row.user_id,
+      panelUserId: Number(row.panel_user_id),
+      panelUsername: row.panel_username,
+      secret: row.secret,
+      origin: row.origin === 'linked' ? 'linked' : 'created',
+      createdAt: iso(row.created_at)!,
+      updatedAt: iso(row.updated_at)!,
     }
   }
 

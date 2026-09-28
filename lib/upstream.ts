@@ -2,8 +2,8 @@ import { config } from './config'
 
 /**
  * Проксирование запросов клиента в панель lejianwen/rustdesk-api.
- * Шлюз стоит перед панелью только на /api/heartbeat и /api/audit/conn:
- * остальные маршруты nginx отдаёт панели напрямую.
+ * Шлюз стоит перед панелью только на /api/heartbeat, /api/audit/conn и
+ * /api/login: остальные маршруты nginx отдаёт панели напрямую.
  */
 export async function proxyToRustdeskApi(
   path: string,
@@ -13,7 +13,9 @@ export async function proxyToRustdeskApi(
   const url = `${config.rustdesk.upstream.replace(/\/$/, '')}${path}`
   const headers = new Headers()
   headers.set('content-type', request.headers.get('content-type') ?? 'application/json')
-  const forwarded = ['authorization', 'user-agent', 'x-real-ip', 'x-forwarded-for']
+  // accept-language — панель переводит по нему ошибки, referer — отличает
+  // веб-клиент от приложения при входе.
+  const forwarded = ['authorization', 'user-agent', 'x-real-ip', 'x-forwarded-for', 'accept-language', 'referer']
   for (const name of forwarded) {
     const value = request.headers.get(name)
     if (value) headers.set(name, value)

@@ -28,6 +28,27 @@ export interface PasswordReset {
   usedAt: string | null
 }
 
+/**
+ * Связь аккаунта сайта с пользователем панели rustdesk-api.
+ *
+ * В клиенте человек входит почтой и паролем от сайта, а сайт сам входит в
+ * панель от имени этого пользователя. Пароль в панели случайный, человек его
+ * не знает и не вводит: он хранится здесь в зашифрованном виде.
+ */
+export interface PanelAccount {
+  userId: string
+  /** id пользователя в панели. */
+  panelUserId: number
+  /** Логин в панели, в нижнем регистре. Клиент показывает его как имя. */
+  panelUsername: string
+  /** Пароль в панели, зашифрованный REMIT_AUTH_SECRET. */
+  secret: string
+  /** created — завели сами; linked — человек перенёс свой прежний аккаунт клиента. */
+  origin: 'created' | 'linked'
+  createdAt: string
+  updatedAt: string
+}
+
 export interface Device {
   id: string
   /** null — устройство видели на сервере, но оно ещё не привязано к аккаунту. */
