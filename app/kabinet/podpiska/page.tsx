@@ -3,7 +3,16 @@ import { redirect } from 'next/navigation'
 import { CheckoutButton } from '@/components/cabinet/checkout-button'
 import { LimitBanner } from '@/components/cabinet/limit-banner'
 import { DataTable } from '@/components/ui/data-table'
-import { quoteUpgrade, syncPendingPayments, type UpgradeQuote } from '@/lib/billing'
+import { AutoRenewChoice, DisableAutopayButton } from '@/components/cabinet/autopay'
+import {
+  autopayAvailable,
+  calculateAmount,
+  quoteUpgrade,
+  syncPendingPayments,
+  type UpgradeQuote,
+} from '@/lib/billing'
+import { RENEWAL } from '@/lib/billing-jobs'
+import type { Payment } from '@/lib/types'
 import { getCurrentUser } from '@/lib/auth'
 import { getLimitNotice } from '@/lib/limit-notice'
 import { userSubject } from '@/lib/quota'
@@ -14,6 +23,45 @@ import { config } from '@/lib/config'
 
 export const metadata: Metadata = { title: 'Подписка' }
 export const dynamic = 'force-dynamic'
+
+const RECEIPT_KIND: Record<string, string> = {
+  prepayment: 'предоплата',
+  settlement: 'полный расчёт',
+  full_payment: 'полный расчёт',
+}
+
+/** Чеки платежа: фискальные признаки, по которым чек проверяется в приложении ФНС. */
+function ReceiptCell({ payment }: { payment: Payment }) {
+  if (payment.status !== 'succeeded' || payment.provider !== 'yookassa' || !config.billing.receipts.enabled) {
+    return <span className="text-text-muted">—</span>
+  }
+  return (
+    <span className="flex flex-col gap-0.5 text-xs">
+      {payment.receipts.length === 0 && <span className="text-text-muted">формируется</span>}
+      {payment.receipts.map((receipt) => (
+        <span key={receipt.id}>
+          {RECEIPT_KIND[receipt.kind]}:{' '}
+          {receipt.status === 'succeeded' ? (
+            <span className="font-mono text-text-secondary">
+              ФД {receipt.fiscalDocumentNumber} · ФП {receipt.fiscalAttribute}
+            </span>
+          ) : receipt.status === 'canceled' ? (
+            <span className="text-danger">не выдан</span>
+          ) : (
+            <span className="text-text-muted">формируется</span>
+          )}
+        </span>
+      ))}
+      {payment.settlement === 'due' && payment.serviceEndsAt && (
+        <span className="text-text-muted">итоговый чек — {formatDate(payment.serviceEndsAt)}</span>
+      )}
+    </span>
+  )
+}
+
+function periodLabel(months: number): string {
+  return months === 12 ? 'год' : months === 1 ? 'месяц' : `${months} мес.`
+}
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'ожидает оплаты',
@@ -81,6 +129,39 @@ export default async function SubscriptionPage({
         )}
       </div>
 
+      {paidSubscription && paidSubscription.autoRenew && (
+        <div className="card flex flex-wrap items-start justify-between gap-4 p-5 sm:p-6">
+          <div className="min-w-0 space-y-1">
+            <h2 className="font-semibold">Автопродление включено</h2>
+            <p className="text-sm leading-relaxed text-text-secondary">
+              {formatDate(
+                new Date(new Date(paidSubscription.expiresAt).getTime() - RENEWAL.chargeBeforeMs).toISOString(),
+              )}{' '}
+              спишем {formatPrice(calculateAmount(paidSubscription.plan, paidSubscription.renewMonths))} с{' '}
+              {paidSubscription.paymentMethodTitle || 'сохранённого способа оплаты'} и продлим «
+              {getPlan(paidSubscription.plan).name}» ещё на {periodLabel(paidSubscription.renewMonths)}. За 3 дня
+              до списания пришлём письмо.
+            </p>
+            {paidSubscription.renewError && paidSubscription.renewNextAt && (
+              <p className="text-sm text-warning">
+                Не удалось списать: {paidSubscription.renewError}. Повторим {formatDateTime(paidSubscription.renewNextAt)}.
+              </p>
+            )}
+          </div>
+          <DisableAutopayButton />
+        </div>
+      )}
+
+      {paidSubscription && !paidSubscription.autoRenew && paidSubscription.renewError && (
+        <div className="card border-warning/30 p-5 sm:p-6">
+          <h2 className="font-semibold text-warning">Автопродление отключено</h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            {paidSubscription.renewError}. Подписка действует до {formatDate(paidSubscription.expiresAt)} — продлите её
+            ниже.
+          </p>
+        </div>
+      )}
+
       {limitNotice && <LimitBanner notice={limitNotice} canProrate={Boolean(paidSubscription)} />}
 
       {invoice && invoice.status === 'pending' && (
@@ -126,77 +207,82 @@ export default async function SubscriptionPage({
         </div>
       )}
 
-      <div className="grid gap-5 md:grid-cols-3">
-        {paidPlans.map((plan) => {
-          const isCurrent = paidSubscription?.plan === plan.id
-          const quote = quotes.get(plan.id)
-          const isLower = paidSubscription && !isCurrent && planRank(plan.id) < planRank(paidSubscription.plan)
-          const isSuggested = suggested === plan.id
-          const accent = isSuggested || (!suggested && plan.highlighted)
+      <PlanChoice autopay={autopayAvailable() && !paidSubscription?.autoRenew}>
+        <div className="grid gap-5 md:grid-cols-3">
+          {paidPlans.map((plan) => {
+            const isCurrent = paidSubscription?.plan === plan.id
+            const quote = quotes.get(plan.id)
+            const isLower = paidSubscription && !isCurrent && planRank(plan.id) < planRank(paidSubscription.plan)
+            const isSuggested = suggested === plan.id
+            const accent = isSuggested || (!suggested && plan.highlighted)
 
-          return (
-            <div
-              key={plan.id}
-              id={`plan-${plan.id}`}
-              className={`card flex scroll-mt-24 flex-col p-6 ${accent ? 'border-brand-500/60' : ''}`}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-lg font-semibold">{plan.name}</h2>
-                {isCurrent && <span className="pill !py-0.5 !text-[11px]">ваш тариф</span>}
-                {isSuggested && !isCurrent && <span className="pill !py-0.5 !text-[11px]">рекомендуем</span>}
-              </div>
-              <p className="mt-1 text-sm text-text-muted">{plan.tagline}</p>
-              <p className="mt-4 text-2xl font-semibold">{formatPrice(plan.priceMonthly)}</p>
-              <p className="text-sm text-text-muted">в месяц · {formatPrice(plan.priceYearly)} за год</p>
+            return (
+              <div
+                key={plan.id}
+                id={`plan-${plan.id}`}
+                className={`card flex scroll-mt-24 flex-col p-6 ${accent ? 'border-brand-500/60' : ''}`}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-lg font-semibold">{plan.name}</h2>
+                  {isCurrent && <span className="pill !py-0.5 !text-[11px]">ваш тариф</span>}
+                  {isSuggested && !isCurrent && <span className="pill !py-0.5 !text-[11px]">рекомендуем</span>}
+                </div>
+                <p className="mt-1 text-sm text-text-muted">{plan.tagline}</p>
+                <p className="mt-4 text-2xl font-semibold">{formatPrice(plan.priceMonthly)}</p>
+                <p className="text-sm text-text-muted">в месяц · {formatPrice(plan.priceYearly)} за год</p>
 
-              <ul className="mt-5 flex-1 space-y-2 text-sm text-text-secondary">
-                {plan.features.slice(0, 4).map((feature) => (
-                  <li key={feature}>• {feature}</li>
-                ))}
-              </ul>
+                <ul className="mt-5 flex-1 space-y-2 text-sm text-text-secondary">
+                  {plan.features.slice(0, 4).map((feature) => (
+                    <li key={feature}>• {feature}</li>
+                  ))}
+                </ul>
 
-              <div className="mt-6 space-y-2">
-                {quote ? (
-                  <>
-                    <CheckoutButton
-                      plan={plan.id}
-                      upgrade
-                      label={`Перейти сейчас — доплата ${formatPrice(quote.amount)}`}
-                      variant={accent ? 'primary' : 'secondary'}
-                    />
-                    <p className="text-xs leading-relaxed text-text-muted">
-                      Тариф «{plan.name}» включится сразу и будет действовать до {formatDate(quote.until)} —
-                      платите только разницу за {quote.remainingDays} дн.
-                      {quote.basis === 'year' ? ' Считаем по годовым ценам, как вы покупали.' : ''} Одновременных
-                      сессий станет {plan.concurrentSessions}.
+                <div className="mt-6 space-y-2">
+                  {quote ? (
+                    <>
+                      <CheckoutButton
+                        plan={plan.id}
+                        upgrade
+                        label={`Перейти сейчас — доплата ${formatPrice(quote.amount)}`}
+                        variant={accent ? 'primary' : 'secondary'}
+                      />
+                      <p className="text-xs leading-relaxed text-text-muted">
+                        Тариф «{plan.name}» включится сразу и будет действовать до {formatDate(quote.until)} —
+                        платите только разницу за {quote.remainingDays} дн.
+                        {quote.basis === 'year' ? ' Считаем по годовым ценам, как вы покупали.' : ''} Одновременных
+                        сессий станет {plan.concurrentSessions}.
+                        {paidSubscription?.autoRenew
+                          ? ` Автопродление сохранится — дальше по цене «${plan.name}».`
+                          : ''}
+                      </p>
+                    </>
+                  ) : isLower ? (
+                    <p className="rounded-xl border border-white/8 bg-ink-850/50 p-3 text-xs leading-relaxed text-text-muted">
+                      Перейти на этот тариф можно после окончания текущей подписки —{' '}
+                      {formatDate(paidSubscription.expiresAt)}.
                     </p>
-                  </>
-                ) : isLower ? (
-                  <p className="rounded-xl border border-white/8 bg-ink-850/50 p-3 text-xs leading-relaxed text-text-muted">
-                    Перейти на этот тариф можно после окончания текущей подписки —{' '}
-                    {formatDate(paidSubscription.expiresAt)}.
-                  </p>
-                ) : (
-                  <>
-                    <CheckoutButton
-                      plan={plan.id}
-                      months={1}
-                      label={`${isCurrent ? 'Продлить на месяц' : 'Оплатить месяц'} — ${formatPrice(plan.priceMonthly)}`}
-                      variant={accent && !isCurrent ? 'primary' : 'secondary'}
-                    />
-                    <CheckoutButton
-                      plan={plan.id}
-                      months={12}
-                      label={`${isCurrent ? 'Продлить на год' : 'Год'} — ${formatPrice(plan.priceYearly)}`}
-                      variant="secondary"
-                    />
-                  </>
-                )}
+                  ) : (
+                    <>
+                      <CheckoutButton
+                        plan={plan.id}
+                        months={1}
+                        label={`${isCurrent ? 'Продлить на месяц' : 'Оплатить месяц'} — ${formatPrice(plan.priceMonthly)}`}
+                        variant={accent && !isCurrent ? 'primary' : 'secondary'}
+                      />
+                      <CheckoutButton
+                        plan={plan.id}
+                        months={12}
+                        label={`${isCurrent ? 'Продлить на год' : 'Год'} — ${formatPrice(plan.priceYearly)}`}
+                        variant="secondary"
+                      />
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      </PlanChoice>
 
       <div id="corporate" className="card grid scroll-mt-24 gap-6 p-6 md:grid-cols-[1.4fr_1fr] md:items-center">
         <div>
@@ -238,7 +324,7 @@ export default async function SubscriptionPage({
         <DataTable
           rows={payments}
           getKey={(payment) => payment.id}
-          minWidth={640}
+          minWidth={820}
           empty="Платежей пока не было."
           columns={[
             { key: 'date', header: 'Дата', primary: true, render: (payment) => formatDateTime(payment.createdAt) },
@@ -266,11 +352,18 @@ export default async function SubscriptionPage({
             {
               key: 'status',
               header: 'Статус',
-              render: (payment) => STATUS_LABELS[payment.status] ?? payment.status,
+              render: (payment) =>
+                `${STATUS_LABELS[payment.status] ?? payment.status}${payment.recurring ? ' · автопродление' : ''}`,
             },
+            { key: 'receipt', header: 'Чек', render: (payment) => <ReceiptCell payment={payment} /> },
           ]}
         />
       </div>
     </div>
   )
+}
+
+/** Отметка автопродления над тарифами — только если ЮKassa его поддерживает. */
+function PlanChoice({ autopay, children }: { autopay: boolean; children: React.ReactNode }) {
+  return autopay ? <AutoRenewChoice>{children}</AutoRenewChoice> : <>{children}</>
 }

@@ -257,7 +257,42 @@ export interface Subscription {
    * null — берём значение из тарифа.
    */
   concurrentSessions: number | null
+  /**
+   * Автопродление: сохранённый в ЮKassa способ оплаты (карта, ЮMoney, SberPay).
+   * Номер карты у нас не хранится — только идентификатор ЮKassa и подпись
+   * вида «Bank card *4444». Пусто — автопродление не настроено.
+   */
+  paymentMethodId: string
+  paymentMethodTitle: string
+  /** На сколько месяцев продлевать: как в последней оплате с согласием. */
+  renewMonths: number
+  /** Неудачные попытки списания в текущем периоде. */
+  renewAttempts: number
+  /** Не раньше этого времени — следующая попытка списания. */
+  renewNextAt: string | null
+  /** Для какой даты окончания уже отправлено предупреждение о списании. */
+  renewNoticeFor: string | null
+  /** Почему не удалось списать в последний раз — показываем в кабинете. */
+  renewError: string
 }
+
+/** Фискальный чек по платежу (ЮKassa, 54-ФЗ). */
+export interface PaymentReceipt {
+  /** prepayment — чек аванса при оплате, settlement — полный расчёт по окончании периода. */
+  kind: 'prepayment' | 'settlement' | 'full_payment'
+  id: string
+  status: 'pending' | 'succeeded' | 'canceled'
+  fiscalDocumentNumber: string
+  fiscalStorageNumber: string
+  fiscalAttribute: string
+  registeredAt: string | null
+}
+
+/**
+ * Второй чек при авансе: '' — не нужен, due — выдать по окончании периода,
+ * sent — выдан, skipped — не нужен (платёж возвращён).
+ */
+export type SettlementState = '' | 'due' | 'sent' | 'skipped'
 
 export type PaymentStatus = 'pending' | 'succeeded' | 'canceled'
 
@@ -286,6 +321,22 @@ export interface Payment {
   confirmationUrl: string
   createdAt: string
   paidAt: string | null
+  /** Списание сохранённым способом без участия человека (автопродление). */
+  recurring: boolean
+  /** Человек согласился на автопродление при этой оплате. */
+  saveMethod: boolean
+  /** Какую подписку продлевает автосписание. */
+  subscriptionId: string | null
+  /** Ключ идемпотентности ЮKassa: повтор запроса не создаст второй платёж. */
+  idempotenceKey: string
+  /** Причина отказа ЮKassa (insufficient_funds и т. п.). */
+  failureReason: string
+  /** Почта для чека — на момент оплаты: аккаунт могут удалить, чек нужен. */
+  receiptEmail: string
+  /** Конец оплаченного периода: тогда услуга оказана и выдаётся второй чек. */
+  serviceEndsAt: string | null
+  settlement: SettlementState
+  receipts: PaymentReceipt[]
 }
 
 /**

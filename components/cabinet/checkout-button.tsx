@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import type { PlanId } from '@/lib/plans'
+import { useAutoRenew } from './autopay'
 
 /**
  * Кнопка оплаты: создаёт заказ и уводит на страницу платёжного провайдера.
@@ -23,6 +24,7 @@ export function CheckoutButton({
   upgrade?: boolean
 }) {
   const router = useRouter()
+  const autoRenew = useAutoRenew()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
 
@@ -33,7 +35,7 @@ export function CheckoutButton({
     const response = await fetch(upgrade ? '/api/v1/billing/upgrade' : '/api/v1/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(upgrade ? { plan } : { plan, months }),
+      body: JSON.stringify(upgrade ? { plan } : { plan, months, autoRenew }),
     })
     const data = (await response.json().catch(() => ({}))) as { redirectUrl?: string; error?: string }
 

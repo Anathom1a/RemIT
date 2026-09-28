@@ -4,6 +4,7 @@ import { processHeartbeat } from '@/lib/quota'
 import { getClientPolicy } from '@/lib/policy'
 import { clientIp } from '@/lib/rate-limit'
 import { reconcileRelays } from '@/lib/relays'
+import { maybeRunBillingJobs } from '@/lib/billing-jobs'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +49,8 @@ export async function POST(request: Request) {
   after(() => purgeOldHistory().catch((error) => console.error('[history] очистка журнала:', error)))
   // Список ретрансляторов в hbbs сверяем не чаще раза в пять минут.
   after(() => reconcileRelays().catch((error) => console.error('[relays] сверка:', error)))
+  // Автопродление и чеки — не чаще раза в десять минут.
+  after(() => maybeRunBillingJobs().catch((error) => console.error('[billing] фоновые задачи:', error)))
 
   if (result.disconnect.length > 0) body.disconnect = result.disconnect
 

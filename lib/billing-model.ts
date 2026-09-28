@@ -1,0 +1,72 @@
+import type { Payment, Subscription } from './types'
+
+/**
+ * Значения по умолчанию для полей автопродления и чеков. Нужны и новым
+ * записям, и старым: в хранилище они появились позже.
+ */
+
+export type AutopayFields = Pick<
+  Subscription,
+  | 'paymentMethodId'
+  | 'paymentMethodTitle'
+  | 'renewMonths'
+  | 'renewAttempts'
+  | 'renewNextAt'
+  | 'renewNoticeFor'
+  | 'renewError'
+>
+
+/** Автопродление выключено, способа оплаты нет. */
+export const AUTOPAY_OFF: AutopayFields & { autoRenew: false } = {
+  autoRenew: false,
+  paymentMethodId: '',
+  paymentMethodTitle: '',
+  renewMonths: 1,
+  renewAttempts: 0,
+  renewNextAt: null,
+  renewNoticeFor: null,
+  renewError: '',
+}
+
+export type PaymentExtras = Pick<
+  Payment,
+  | 'recurring'
+  | 'saveMethod'
+  | 'subscriptionId'
+  | 'idempotenceKey'
+  | 'failureReason'
+  | 'receiptEmail'
+  | 'serviceEndsAt'
+  | 'settlement'
+  | 'receipts'
+>
+
+export function paymentExtras(): PaymentExtras {
+  return {
+    recurring: false,
+    saveMethod: false,
+    subscriptionId: null,
+    idempotenceKey: '',
+    failureReason: '',
+    receiptEmail: '',
+    serviceEndsAt: null,
+    settlement: '',
+    receipts: [],
+  }
+}
+
+/** Дополняет запись из старого снимка хранилища недостающими полями. */
+export function normalizeSubscription(subscription: Subscription): Subscription {
+  return { ...AUTOPAY_OFF, ...subscription, autoRenew: Boolean(subscription.autoRenew) }
+}
+
+export function normalizePayment(payment: Payment): Payment {
+  return {
+    ...paymentExtras(),
+    ...payment,
+    kind: payment.kind ?? 'subscription',
+    fromPlan: payment.fromPlan ?? null,
+    upgradeUntil: payment.upgradeUntil ?? null,
+    receipts: payment.receipts ?? [],
+  }
+}

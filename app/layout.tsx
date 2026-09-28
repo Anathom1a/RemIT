@@ -6,6 +6,13 @@ import { organizationJsonLd, siteUrl, websiteJsonLd } from '@/lib/seo'
 import { formatPrice, getPlan } from '@/lib/plans'
 import './globals.css'
 
+/**
+ * Страницы строятся на каждый запрос. Образ собирается без .env, и
+ * статически собранные страницы показывали бы значения по умолчанию вместо
+ * заданных на сервере: реквизиты в оферте, условия автопродления, контакты.
+ */
+export const dynamic = 'force-dynamic'
+
 export const metadata: Metadata = {
   metadataBase: new URL(`https://${config.brand.domain}`),
   title: {

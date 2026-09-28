@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import { normalizePayment, normalizeSubscription } from '../billing-model'
 import type { Store } from './index'
 import type {
   ClientAlarm,
@@ -118,14 +119,10 @@ export class MemoryStore implements Store {
       this.alarms = snapshot.alarms ?? []
       this.webShares = new Map(snapshot.webShares?.map((w) => [w.token, w]))
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
-      this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, s]))
-      // kind, fromPlan и upgradeUntil появились позже: у старых записей их нет.
-      this.payments = new Map(
-        snapshot.payments?.map((p) => [
-          p.id,
-          { ...p, kind: p.kind ?? 'subscription', fromPlan: p.fromPlan ?? null, upgradeUntil: p.upgradeUntil ?? null },
-        ]),
-      )
+      // Поля повышения тарифа, автопродления и чеков появились позже:
+      // у старых записей их нет.
+      this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, normalizeSubscription(s)]))
+      this.payments = new Map(snapshot.payments?.map((p) => [p.id, normalizePayment(p)]))
       this.connSessions = new Map(snapshot.connSessions?.map((s) => [s.key, s]))
       this.usage = new Map(snapshot.usage?.map((u) => [`${u.subjectKey}|${u.day}`, u]))
       this.settings = snapshot.settings ?? {}
@@ -715,6 +712,23 @@ export class MemoryStore implements Store {
       .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
   }
 
+  async findSubscriptionById(id: string): Promise<Subscription | null> {
+    await this.sync()
+    return this.subscriptions.get(id) ?? null
+  }
+
+  async listRenewalCandidates(from: string, until: string): Promise<Subscription[]> {
+    await this.sync()
+    const low = new Date(from).getTime()
+    const high = new Date(until).getTime()
+    return [...this.subscriptions.values()]
+      .filter((s) => {
+        const at = new Date(s.expiresAt).getTime()
+        return s.status === 'active' && s.autoRenew && at >= low && at <= high
+      })
+      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
+  }
+
   async saveSubscription(subscription: Subscription): Promise<void> {
     await this.sync()
     this.subscriptions.set(subscription.id, subscription)
@@ -731,6 +745,47 @@ export class MemoryStore implements Store {
     await this.sync()
     this.payments.set(payment.id, payment)
     await this.persist()
+  }
+
+  async createPaymentIfAbsent(payment: Payment): Promise<boolean> {
+    await this.sync()
+    if (this.payments.has(payment.id)) return false
+    this.payments.set(payment.id, payment)
+    await this.persist()
+    return true
+  }
+
+  async markPaymentSucceeded(id: string, paidAt: string): Promise<boolean> {
+    await this.sync()
+    // Проверка и запись без await между ними: в одном процессе атомарно.
+    const payment = this.payments.get(id)
+    if (!payment || payment.status === 'succeeded') return false
+    this.payments.set(id, { ...payment, status: 'succeeded', paidAt })
+    await this.persist()
+    return true
+  }
+
+  async listPaymentsDueSettlement(now: string, limit: number): Promise<Payment[]> {
+    await this.sync()
+    const at = new Date(now).getTime()
+    return [...this.payments.values()]
+      .filter((p) => p.status === 'succeeded' && p.settlement === 'due' && p.serviceEndsAt && new Date(p.serviceEndsAt).getTime() <= at)
+      .sort((a, b) => (a.serviceEndsAt ?? '').localeCompare(b.serviceEndsAt ?? ''))
+      .slice(0, limit)
+  }
+
+  async listPaymentsAwaitingReceipt(since: string, limit: number): Promise<Payment[]> {
+    await this.sync()
+    return [...this.payments.values()]
+      .filter(
+        (p) =>
+          p.status === 'succeeded' &&
+          p.provider === 'yookassa' &&
+          (p.paidAt ?? '') >= since &&
+          (p.receipts.length === 0 || p.receipts.some((r) => r.status === 'pending')),
+      )
+      .sort((a, b) => (b.paidAt ?? '').localeCompare(a.paidAt ?? ''))
+      .slice(0, limit)
   }
 
   async findPaymentById(id: string): Promise<Payment | null> {

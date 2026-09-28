@@ -147,9 +147,23 @@ export interface Store {
   getActiveSubscription(userId: string): Promise<Subscription | null>
   saveSubscription(subscription: Subscription): Promise<void>
   listActiveSubscriptions(): Promise<Subscription[]>
+  findSubscriptionById(id: string): Promise<Subscription | null>
+  /** Подписки с автопродлением, у которых срок кончается в [from, until]. */
+  listRenewalCandidates(from: string, until: string): Promise<Subscription[]>
 
   createPayment(payment: Payment): Promise<void>
   savePayment(payment: Payment): Promise<void>
+  /** Создаёт платёж, если записи с таким id ещё нет; false — уже есть. */
+  createPaymentIfAbsent(payment: Payment): Promise<boolean>
+  /**
+   * Атомарно переводит платёж в «оплачен». true — перевёл этот вызов; false —
+   * платёж уже был оплачен (вебхук и досинхронизация пришли одновременно).
+   */
+  markPaymentSucceeded(id: string, paidAt: string): Promise<boolean>
+  /** Оплаченные авансом платежи, чей период кончился, а второго чека ещё нет. */
+  listPaymentsDueSettlement(now: string, limit: number): Promise<Payment[]>
+  /** Оплаченные с paidAt >= since, по которым чеки ещё не получены. */
+  listPaymentsAwaitingReceipt(since: string, limit: number): Promise<Payment[]>
   findPaymentById(id: string): Promise<Payment | null>
   findPaymentByProviderId(providerPaymentId: string): Promise<Payment | null>
   listPaymentsByUser(userId: string, limit: number): Promise<Payment[]>

@@ -27,7 +27,7 @@ import type {
   User,
 } from '../types'
 import type { PlanId } from '../plans'
-import type { PaymentKind, PaymentStatus, SubscriptionStatus } from '../types'
+import type { PaymentKind, PaymentReceipt, PaymentStatus, SettlementState, SubscriptionStatus } from '../types'
 
 type Row = Record<string, any>
 
@@ -35,6 +35,43 @@ const iso = (value: Date | string | null): string | null =>
   value === null ? null : value instanceof Date ? value.toISOString() : value
 
 /** Рабочее хранилище на Postgres. Схема лежит в server/sql/001_init.sql. */
+
+const PAYMENT_FIELDS = [
+  'id', 'user_id', 'plan', 'months', 'amount', 'status', 'provider', 'provider_payment_id', 'confirmation_url',
+  'created_at', 'paid_at', 'kind', 'from_plan', 'upgrade_until', 'recurring', 'save_method', 'subscription_id',
+  'idempotence_key', 'failure_reason', 'receipt_email', 'service_ends_at', 'settlement', 'receipts',
+]
+const PAYMENT_COLUMNS = PAYMENT_FIELDS.join(', ')
+const PAYMENT_VALUES = PAYMENT_FIELDS.map((_, index) => `$${index + 1}`).join(', ')
+
+function paymentParams(payment: Payment): unknown[] {
+  return [
+    payment.id,
+    payment.userId,
+    payment.plan,
+    payment.months,
+    payment.amount,
+    payment.status,
+    payment.provider,
+    payment.providerPaymentId,
+    payment.confirmationUrl,
+    payment.createdAt,
+    payment.paidAt,
+    payment.kind,
+    payment.fromPlan,
+    payment.upgradeUntil,
+    payment.recurring,
+    payment.saveMethod,
+    payment.subscriptionId,
+    payment.idempotenceKey,
+    payment.failureReason,
+    payment.receiptEmail,
+    payment.serviceEndsAt,
+    payment.settlement,
+    JSON.stringify(payment.receipts ?? []),
+  ]
+}
+
 export class PostgresStore implements Store {
   private pool!: Pool
 
@@ -97,6 +134,13 @@ export class PostgresStore implements Store {
       provider: row.provider,
       providerId: row.provider_id,
       concurrentSessions: row.concurrent_sessions ?? null,
+      paymentMethodId: row.payment_method_id ?? '',
+      paymentMethodTitle: row.payment_method_title ?? '',
+      renewMonths: row.renew_months ?? 1,
+      renewAttempts: row.renew_attempts ?? 0,
+      renewNextAt: iso(row.renew_next_at ?? null),
+      renewNoticeFor: iso(row.renew_notice_for ?? null),
+      renewError: row.renew_error ?? '',
     }
   }
 
@@ -116,6 +160,15 @@ export class PostgresStore implements Store {
       confirmationUrl: row.confirmation_url,
       createdAt: iso(row.created_at)!,
       paidAt: iso(row.paid_at),
+      recurring: Boolean(row.recurring),
+      saveMethod: Boolean(row.save_method),
+      subscriptionId: row.subscription_id ?? null,
+      idempotenceKey: row.idempotence_key ?? '',
+      failureReason: row.failure_reason ?? '',
+      receiptEmail: row.receipt_email ?? '',
+      serviceEndsAt: iso(row.service_ends_at ?? null),
+      settlement: (row.settlement ?? '') as SettlementState,
+      receipts: (row.receipts ?? []) as PaymentReceipt[],
     }
   }
 
@@ -837,16 +890,26 @@ export class PostgresStore implements Store {
 
   async saveSubscription(subscription: Subscription): Promise<void> {
     await this.query(
-      `INSERT INTO subscriptions (id, user_id, plan, status, started_at, expires_at, auto_renew, provider, provider_id, concurrent_sessions)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO subscriptions (id, user_id, plan, status, started_at, expires_at, auto_renew, provider, provider_id,
+         concurrent_sessions, payment_method_id, payment_method_title, renew_months, renew_attempts, renew_next_at,
+         renew_notice_for, renew_error)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        ON CONFLICT (id) DO UPDATE SET
          plan = EXCLUDED.plan,
          status = EXCLUDED.status,
+         started_at = EXCLUDED.started_at,
          expires_at = EXCLUDED.expires_at,
          auto_renew = EXCLUDED.auto_renew,
          provider = EXCLUDED.provider,
          provider_id = EXCLUDED.provider_id,
-         concurrent_sessions = EXCLUDED.concurrent_sessions`,
+         concurrent_sessions = EXCLUDED.concurrent_sessions,
+         payment_method_id = EXCLUDED.payment_method_id,
+         payment_method_title = EXCLUDED.payment_method_title,
+         renew_months = EXCLUDED.renew_months,
+         renew_attempts = EXCLUDED.renew_attempts,
+         renew_next_at = EXCLUDED.renew_next_at,
+         renew_notice_for = EXCLUDED.renew_notice_for,
+         renew_error = EXCLUDED.renew_error`,
       [
         subscription.id,
         subscription.userId,
@@ -858,8 +921,30 @@ export class PostgresStore implements Store {
         subscription.provider,
         subscription.providerId,
         subscription.concurrentSessions,
+        subscription.paymentMethodId,
+        subscription.paymentMethodTitle,
+        subscription.renewMonths,
+        subscription.renewAttempts,
+        subscription.renewNextAt,
+        subscription.renewNoticeFor,
+        subscription.renewError,
       ],
     )
+  }
+
+  async findSubscriptionById(id: string): Promise<Subscription | null> {
+    const rows = await this.query('SELECT * FROM subscriptions WHERE id = $1', [id])
+    return rows[0] ? this.toSubscription(rows[0]) : null
+  }
+
+  async listRenewalCandidates(from: string, until: string): Promise<Subscription[]> {
+    const rows = await this.query(
+      `SELECT * FROM subscriptions
+       WHERE auto_renew AND status = 'active' AND expires_at >= $1 AND expires_at <= $2
+       ORDER BY expires_at ASC`,
+      [from, until],
+    )
+    return rows.map((row) => this.toSubscription(row))
   }
 
   async listActiveSubscriptions(): Promise<Subscription[]> {
@@ -875,31 +960,57 @@ export class PostgresStore implements Store {
 
   async savePayment(payment: Payment): Promise<void> {
     await this.query(
-      `INSERT INTO payments (id, user_id, plan, months, amount, status, provider, provider_payment_id, confirmation_url,
-         created_at, paid_at, kind, from_plan, upgrade_until)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      `INSERT INTO payments (${PAYMENT_COLUMNS})
+       VALUES (${PAYMENT_VALUES})
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          provider_payment_id = EXCLUDED.provider_payment_id,
          confirmation_url = EXCLUDED.confirmation_url,
-         paid_at = EXCLUDED.paid_at`,
-      [
-        payment.id,
-        payment.userId,
-        payment.plan,
-        payment.months,
-        payment.amount,
-        payment.status,
-        payment.provider,
-        payment.providerPaymentId,
-        payment.confirmationUrl,
-        payment.createdAt,
-        payment.paidAt,
-        payment.kind,
-        payment.fromPlan,
-        payment.upgradeUntil,
-      ],
+         paid_at = EXCLUDED.paid_at,
+         failure_reason = EXCLUDED.failure_reason,
+         service_ends_at = EXCLUDED.service_ends_at,
+         settlement = EXCLUDED.settlement,
+         receipts = EXCLUDED.receipts`,
+      paymentParams(payment),
     )
+  }
+
+  async createPaymentIfAbsent(payment: Payment): Promise<boolean> {
+    const rows = await this.query(
+      `INSERT INTO payments (${PAYMENT_COLUMNS}) VALUES (${PAYMENT_VALUES})
+       ON CONFLICT (id) DO NOTHING RETURNING id`,
+      paymentParams(payment),
+    )
+    return rows.length > 0
+  }
+
+  async markPaymentSucceeded(id: string, paidAt: string): Promise<boolean> {
+    const rows = await this.query(
+      `UPDATE payments SET status = 'succeeded', paid_at = $2 WHERE id = $1 AND status <> 'succeeded' RETURNING id`,
+      [id, paidAt],
+    )
+    return rows.length > 0
+  }
+
+  async listPaymentsDueSettlement(now: string, limit: number): Promise<Payment[]> {
+    const rows = await this.query(
+      `SELECT * FROM payments
+       WHERE settlement = 'due' AND status = 'succeeded' AND service_ends_at <= $1
+       ORDER BY service_ends_at ASC LIMIT $2`,
+      [now, limit],
+    )
+    return rows.map((row) => this.toPayment(row))
+  }
+
+  async listPaymentsAwaitingReceipt(since: string, limit: number): Promise<Payment[]> {
+    const rows = await this.query(
+      `SELECT * FROM payments
+       WHERE status = 'succeeded' AND provider = 'yookassa' AND paid_at >= $1
+         AND (receipts = '[]'::jsonb OR receipts @> '[{"status":"pending"}]'::jsonb)
+       ORDER BY paid_at DESC LIMIT $2`,
+      [since, limit],
+    )
+    return rows.map((row) => this.toPayment(row))
   }
 
   async findPaymentById(id: string): Promise<Payment | null> {

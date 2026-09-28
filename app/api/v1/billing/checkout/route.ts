@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const { payment, redirectUrl } = await createCheckout(user, plan, months)
+    const { payment, redirectUrl } = await createCheckout(user, plan, months, { autoRenew: payload.autoRenew === true })
     return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl })
   } catch (error) {
     if (error instanceof CheckoutError) {

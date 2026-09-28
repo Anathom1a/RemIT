@@ -189,6 +189,36 @@ export const config = {
       shopId: env('YOOKASSA_SHOP_ID'),
       secretKey: env('YOOKASSA_SECRET_KEY'),
       returnUrl: env('YOOKASSA_RETURN_URL', 'https://remit.su/kabinet/podpiska'),
+      /** Для проверки без ЮKassa можно подменить адрес API. */
+      apiUrl: env('YOOKASSA_API_URL', 'https://api.yookassa.ru/v3').replace(/\/+$/, ''),
+    },
+    /**
+     * Автопродление: ЮKassa сохраняет карту при первой оплате и списывает
+     * следующие периоды без участия человека. Включается менеджером ЮKassa
+     * («автоплатежи») — до этого держите false, иначе ЮKassa отклонит платёж
+     * с просьбой сохранить способ оплаты.
+     */
+    autopay: env('YOOKASSA_AUTOPAY', 'false') === 'true',
+    /** Чеки по 54-ФЗ через ЮKassa («Чеки от ЮKassa» или подключённая онлайн-касса). */
+    receipts: {
+      /** false — чеки выбивает ваша касса сама, ЮKassa их не формирует. */
+      enabled: env('YOOKASSA_RECEIPTS', 'true') !== 'false',
+      /**
+       * Ставка НДС: 1 — без НДС, 2 — 0%, 3 — 10%, 4 — 20%, 5 — 10/110, 6 — 20/120,
+       * 7 — 5%, 8 — 7%, 9 — 5/105, 10 — 7/107, 11 — 22%, 12 — 22/122.
+       */
+      vatCode: envInt('YOOKASSA_VAT_CODE', 1),
+      /** Система налогообложения (1–6); 0 — не передавать, если она у магазина одна. */
+      taxSystemCode: envInt('YOOKASSA_TAX_SYSTEM_CODE', 0),
+      /**
+       * prepayment — при оплате чек «предоплата 100%», по окончании оплаченного
+       * периода второй чек «полный расчёт» с зачётом аванса (так и написано в
+       * оферте: услуга оказана по окончании периода);
+       * full_payment — один чек «полный расчёт» сразу при оплате.
+       */
+      mode: (env('YOOKASSA_RECEIPT_MODE', 'prepayment') === 'full_payment' ? 'full_payment' : 'prepayment') as
+        | 'prepayment'
+        | 'full_payment',
     },
   },
 

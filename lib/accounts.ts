@@ -1,3 +1,4 @@
+import { disableAutopay } from './billing'
 import { getStore } from './store'
 import type { User } from './types'
 
@@ -61,6 +62,8 @@ export async function deleteAccount(userId: string): Promise<void> {
   for (const device of await store.listDevicesByUser(userId)) await store.setDeviceOwner(device.rustdeskId, null)
   for (const identity of await store.listOAuthIdentities(userId)) await store.deleteOAuthIdentity(identity.provider, userId)
   await store.deleteWebSharesByUser(userId)
+  // Сохранённую карту забываем: после удаления аккаунта списаний не будет.
+  await disableAutopay(userId, 'аккаунт удалён')
 
   await store.updateUser({
     ...user,

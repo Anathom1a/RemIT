@@ -33,12 +33,12 @@ export async function POST(request: Request) {
   }
 
   if (remote.status === 'succeeded') {
-    await markPaymentPaid({ ...payment, providerPaymentId })
+    await markPaymentPaid({ ...payment, providerPaymentId }, remote)
     return NextResponse.json({ ok: true, status: 'succeeded' })
   }
 
   if (remote.status === 'canceled' && payment.status === 'pending') {
-    await store.savePayment({ ...payment, status: 'canceled' })
+    await store.savePayment({ ...payment, status: 'canceled', failureReason: remote.cancellationReason })
   }
 
   return NextResponse.json({ ok: true, status: remote.status })

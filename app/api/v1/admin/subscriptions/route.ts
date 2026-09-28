@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { denyIfNotAdmin } from '@/lib/admin'
-import { activateSubscription, activateTrial } from '@/lib/billing'
+import { activateSubscription, activateTrial, disableAutopay } from '@/lib/billing'
+import { AUTOPAY_OFF } from '@/lib/billing-model'
 import { config } from '@/lib/config'
 import { PLANS_BY_ID, getPlan, isFreePlan, type PlanId } from '@/lib/plans'
 import { getStore } from '@/lib/store'
@@ -32,7 +33,8 @@ export async function GET(request: Request) {
  *            сразу указать согласованное число одновременных сессий;
  *   trial  — выдать пробный период на N дней (не дольше максимума из настроек);
  *   limits — изменить число одновременных сессий у действующей подписки;
- *   cancel — отменить подписку.
+ *   cancel — отменить подписку (и автопродление);
+ *   autopay-off — выключить автопродление, подписка остаётся до конца срока.
  *
  * Пробный период выдаёт только администратор: самостоятельной активации на
  * сайте нет, это защищает от бесплатного доступа без ограничения времени
@@ -99,8 +101,14 @@ export async function POST(request: Request) {
   if (action === 'cancel') {
     const current = await store.getActiveSubscription(userId)
     if (!current) return NextResponse.json({ error: 'Активной подписки нет' }, { status: 404 })
-    await store.saveSubscription({ ...current, status: 'canceled' })
+    await store.saveSubscription({ ...current, ...AUTOPAY_OFF, status: 'canceled' })
     return NextResponse.json({ ok: true, action: 'cancel' })
+  }
+
+  if (action === 'autopay-off') {
+    const updated = await disableAutopay(userId, 'выключено администратором')
+    if (!updated) return NextResponse.json({ error: 'Активной подписки нет' }, { status: 404 })
+    return NextResponse.json({ ok: true, action: 'autopay-off' })
   }
 
   const plan = String(payload.plan ?? '') as PlanId

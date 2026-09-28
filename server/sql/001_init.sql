@@ -140,6 +140,16 @@ ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS concurrent_sessions INTEGER;
 
 CREATE INDEX IF NOT EXISTS subscriptions_user_idx ON subscriptions(user_id, status, expires_at DESC);
 
+-- Автопродление: сохранённый в ЮKassa способ оплаты и попытки списания.
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS payment_method_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS payment_method_title TEXT NOT NULL DEFAULT '';
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_months INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_next_at TIMESTAMPTZ;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_notice_for TIMESTAMPTZ;
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_error TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS subscriptions_renew_idx ON subscriptions(expires_at) WHERE auto_renew AND status = 'active';
+
 CREATE TABLE IF NOT EXISTS payments (
     id                  TEXT PRIMARY KEY,
     user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -160,7 +170,19 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'subscr
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS from_plan TEXT;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS upgrade_until TIMESTAMPTZ;
 
+-- Автопродление и чеки по 54-ФЗ.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS recurring BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS save_method BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS subscription_id TEXT;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS idempotence_key TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS failure_reason TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS service_ends_at TIMESTAMPTZ;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS settlement TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipts JSONB NOT NULL DEFAULT '[]'::jsonb;
+
 CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS payments_settlement_idx ON payments(service_ends_at) WHERE settlement = 'due';
 CREATE INDEX IF NOT EXISTS payments_provider_idx ON payments(provider_payment_id);
 
 -- Сессии удалённого управления. Ключ: <id управляемого устройства>:<conn_id>.

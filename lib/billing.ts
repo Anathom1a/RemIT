@@ -4,6 +4,14 @@ import { getPlan, isFreePlan, planRank, type Plan, type PlanId } from './plans'
 import { getStore } from './store'
 import { newId } from './auth'
 import { formatDate } from './time'
+import { AUTOPAY_OFF, paymentExtras, type AutopayFields } from './billing-model'
+import {
+  createPayment as createYookassaApiPayment,
+  getPayment as getYookassaApiPayment,
+  receiptBlock,
+  yookassaConfigured,
+  type YookassaPayment,
+} from './yookassa'
 import type { Payment, Subscription, User } from './types'
 
 /**
@@ -37,7 +45,80 @@ export function calculateAmount(planId: PlanId, months: number): number {
   return plan.priceMonthly * months
 }
 
-export async function createCheckout(user: User, planId: PlanId, months: number): Promise<CheckoutResult> {
+/** Можно ли сейчас предложить автопродление при оплате. */
+export function autopayAvailable(): boolean {
+  return config.billing.provider === 'yookassa' && config.billing.autopay
+}
+
+/**
+ * Новый платёж со всеми полями по умолчанию. Почту для чека запоминаем
+ * сразу: аккаунт могут удалить до выдачи второго чека.
+ */
+function newPayment(user: User, fields: Pick<Payment, 'kind' | 'plan' | 'fromPlan' | 'upgradeUntil' | 'months' | 'amount'>): Payment {
+  return {
+    ...paymentExtras(),
+    ...fields,
+    id: newId('pay'),
+    userId: user.id,
+    status: 'pending',
+    provider: config.billing.provider,
+    providerPaymentId: '',
+    confirmationUrl: '',
+    createdAt: new Date().toISOString(),
+    paidAt: null,
+    idempotenceKey: randomUUID(),
+    receiptEmail: user.email,
+  }
+}
+
+/** Наименование услуги — в описании платежа и в чеке. */
+export function paymentDescription(payment: Payment): string {
+  const plan = getPlan(payment.plan)
+  if (payment.kind === 'upgrade') {
+    const from = payment.fromPlan ? getPlan(payment.fromPlan).name : ''
+    return `Подписка ${config.brand.name}: переход с «${from}» на «${plan.name}» до ${formatDate(payment.upgradeUntil ?? payment.createdAt)}`
+  }
+  return `Подписка ${config.brand.name}: тариф «${plan.name}», ${payment.months} мес.`
+}
+
+/** Признак способа расчёта в первом чеке. */
+function firstReceiptMode(): 'full_prepayment' | 'full_payment' {
+  return config.billing.receipts.mode === 'prepayment' ? 'full_prepayment' : 'full_payment'
+}
+
+/** Создаёт платёж в ЮKassa: страница оплаты или автосписание. */
+export async function sendPaymentToYookassa(payment: Payment, paymentMethodId?: string): Promise<YookassaPayment> {
+  if (!yookassaConfigured()) {
+    throw new Error('ЮKassa не настроена: заполните YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY')
+  }
+  const description = paymentDescription(payment)
+  return createYookassaApiPayment({
+    amount: payment.amount,
+    description,
+    idempotenceKey: payment.idempotenceKey,
+    metadata: {
+      paymentId: payment.id,
+      userId: payment.userId,
+      kind: payment.kind,
+      plan: payment.plan,
+      months: String(payment.months),
+      ...(payment.recurring ? { recurring: '1' } : {}),
+    },
+    receipt: config.billing.receipts.enabled
+      ? receiptBlock(payment.receiptEmail, description, payment.amount, firstReceiptMode())
+      : null,
+    returnUrl: config.billing.yookassa.returnUrl,
+    saveMethod: payment.saveMethod,
+    paymentMethodId,
+  })
+}
+
+export async function createCheckout(
+  user: User,
+  planId: PlanId,
+  months: number,
+  options: { autoRenew?: boolean } = {},
+): Promise<CheckoutResult> {
   const plan = getPlan(planId)
   if (isFreePlan(planId)) {
     throw new CheckoutError('Бесплатный тариф не требует оплаты')
@@ -63,28 +144,12 @@ export async function createCheckout(user: User, planId: PlanId, months: number)
   }
 
   const amount = calculateAmount(planId, months)
-  const payment: Payment = {
-    id: newId('pay'),
-    userId: user.id,
-    kind: 'subscription',
-    plan: planId,
-    fromPlan: null,
-    upgradeUntil: null,
-    months,
-    amount,
-    status: 'pending',
-    provider: config.billing.provider,
-    providerPaymentId: '',
-    confirmationUrl: '',
-    createdAt: new Date().toISOString(),
-    paidAt: null,
-  }
+  const payment = newPayment(user, { kind: 'subscription', plan: planId, fromPlan: null, upgradeUntil: null, months, amount })
+  // Карту сохраняем, только если человек сам отметил автопродление.
+  payment.saveMethod = Boolean(options.autoRenew) && autopayAvailable()
 
   if (config.billing.provider === 'yookassa') {
-    if (!config.billing.yookassa.shopId || !config.billing.yookassa.secretKey) {
-      throw new Error('ЮKassa не настроена: заполните YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY')
-    }
-    const created = await createYookassaPayment(payment, `тариф «${plan.name}», ${months} мес.`, user.email)
+    const created = await sendPaymentToYookassa(payment)
     payment.providerPaymentId = created.id
     payment.confirmationUrl = created.confirmationUrl
   } else {
@@ -95,84 +160,21 @@ export async function createCheckout(user: User, planId: PlanId, months: number)
   return { payment, redirectUrl: payment.confirmationUrl }
 }
 
-interface YookassaPayment {
-  id: string
-  status: string
-  confirmationUrl: string
-  metadata: Record<string, string>
-}
-
-function yookassaAuthHeader(): string {
-  const { shopId, secretKey } = config.billing.yookassa
-  return `Basic ${Buffer.from(`${shopId}:${secretKey}`).toString('base64')}`
-}
-
-async function createYookassaPayment(payment: Payment, what: string, email: string): Promise<YookassaPayment> {
-  const response = await fetch('https://api.yookassa.ru/v3/payments', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Idempotence-Key': randomUUID(),
-      Authorization: yookassaAuthHeader(),
-    },
-    body: JSON.stringify({
-      amount: { value: (payment.amount / 100).toFixed(2), currency: 'RUB' },
-      capture: true,
-      confirmation: { type: 'redirect', return_url: config.billing.yookassa.returnUrl },
-      description: `${config.brand.name}: ${what}`,
-      metadata: {
-        paymentId: payment.id,
-        userId: payment.userId,
-        kind: payment.kind,
-        plan: payment.plan,
-        months: String(payment.months),
-      },
-      receipt: {
-        customer: { email },
-        items: [
-          {
-            description: `Подписка ${config.brand.name}: ${what}`,
-            quantity: '1.00',
-            amount: { value: (payment.amount / 100).toFixed(2), currency: 'RUB' },
-            vat_code: 1,
-            payment_mode: 'full_prepayment',
-            payment_subject: 'service',
-          },
-        ],
-      },
-    }),
-  })
-
-  if (!response.ok) {
-    const text = await response.text()
-    throw new Error(`ЮKassa вернула ошибку ${response.status}: ${text}`)
-  }
-
-  const data = (await response.json()) as any
-  return {
-    id: data.id,
-    status: data.status,
-    confirmationUrl: data.confirmation?.confirmation_url ?? '',
-    metadata: data.metadata ?? {},
-  }
-}
-
 /** Повторно запрашивает статус платежа у ЮKassa: вебхуку нельзя доверять на слово. */
 export async function fetchYookassaPayment(providerPaymentId: string): Promise<YookassaPayment> {
-  const response = await fetch(`https://api.yookassa.ru/v3/payments/${providerPaymentId}`, {
-    headers: { Authorization: yookassaAuthHeader() },
-  })
-  if (!response.ok) {
-    throw new Error(`ЮKassa вернула ошибку ${response.status}`)
-  }
-  const data = (await response.json()) as any
-  return {
-    id: data.id,
-    status: data.status,
-    confirmationUrl: data.confirmation?.confirmation_url ?? '',
-    metadata: data.metadata ?? {},
-  }
+  return getYookassaApiPayment(providerPaymentId)
 }
+
+const autopayOf = (subscription: Subscription): AutopayFields & { autoRenew: boolean } => ({
+  autoRenew: subscription.autoRenew,
+  paymentMethodId: subscription.paymentMethodId,
+  paymentMethodTitle: subscription.paymentMethodTitle,
+  renewMonths: subscription.renewMonths,
+  renewAttempts: 0,
+  renewNextAt: null,
+  renewNoticeFor: subscription.renewNoticeFor,
+  renewError: '',
+})
 
 /** Продлевает подписку: от текущей даты окончания, если она ещё не прошла. */
 export async function activateSubscription(
@@ -193,13 +195,15 @@ export async function activateSubscription(
   expiresAt.setMonth(expiresAt.getMonth() + months)
 
   const subscription: Subscription = {
+    // Продление того же тарифа сохраняет автопродление; попытки списания
+    // обнуляются — период оплачен.
+    ...(current && current.plan === plan ? autopayOf(current) : AUTOPAY_OFF),
     id: current && current.plan === plan ? current.id : newId('sub'),
     userId,
     plan,
     status: 'active',
     startedAt: current && current.plan === plan ? current.startedAt : now.toISOString(),
     expiresAt: expiresAt.toISOString(),
-    autoRenew: false,
     provider,
     providerId,
     // Явно переданное значение важнее; иначе сохраняем согласованный ранее лимит.
@@ -216,14 +220,94 @@ export async function activateSubscription(
   return subscription
 }
 
-/** Отмечает платёж оплаченным и включает подписку. Идемпотентно. */
-export async function markPaymentPaid(payment: Payment): Promise<Subscription | null> {
+/**
+ * Отмечает платёж оплаченным и включает подписку. Идемпотентно и без гонок:
+ * вебхук, досинхронизация из кабинета и автопродление могут прийти
+ * одновременно, но подписку продлит только тот вызов, который первым
+ * перевёл платёж в «оплачен».
+ *
+ * remote — платёж из ЮKassa: из него берётся сохранённый способ оплаты.
+ */
+export async function markPaymentPaid(payment: Payment, remote?: YookassaPayment): Promise<Subscription | null> {
   const store = await getStore()
   if (payment.status === 'succeeded') return store.getActiveSubscription(payment.userId)
-  const paid: Payment = { ...payment, status: 'succeeded', paidAt: new Date().toISOString() }
+  const paidAt = new Date().toISOString()
+  if (!(await store.markPaymentSucceeded(payment.id, paidAt))) return store.getActiveSubscription(payment.userId)
+  const paid: Payment = { ...payment, status: 'succeeded', paidAt }
+
+  let subscription =
+    paid.kind === 'upgrade'
+      ? await applyUpgrade(paid)
+      : await activateSubscription(paid.userId, paid.plan, paid.months, paid.provider, paid.providerPaymentId)
+
+  subscription = await applyAutopay(paid, subscription, remote)
+
+  // Чеки: при авансе второй чек выдаётся по окончании оплаченного периода.
+  paid.serviceEndsAt = paid.kind === 'upgrade' ? (paid.upgradeUntil ?? subscription.expiresAt) : subscription.expiresAt
+  paid.settlement =
+    paid.provider === 'yookassa' && config.billing.receipts.enabled && config.billing.receipts.mode === 'prepayment'
+      ? 'due'
+      : ''
   await store.savePayment(paid)
-  if (paid.kind === 'upgrade') return applyUpgrade(paid)
-  return activateSubscription(paid.userId, paid.plan, paid.months, paid.provider, paid.providerPaymentId)
+  return subscription
+}
+
+/**
+ * Автопродление после оплаты:
+ *   - автосписание продлило подписку — способ оплаты переносим на неё
+ *     (если подписка успела закончиться, продление создаёт новую запись);
+ *   - человек согласился на автопродление и ЮKassa сохранила способ — включаем.
+ */
+async function applyAutopay(payment: Payment, subscription: Subscription, remote?: YookassaPayment): Promise<Subscription> {
+  const store = await getStore()
+
+  if (payment.recurring && payment.subscriptionId) {
+    const renewed = await store.findSubscriptionById(payment.subscriptionId)
+    if (!renewed || !renewed.paymentMethodId) return subscription
+    const next: Subscription = {
+      ...subscription,
+      autoRenew: true,
+      paymentMethodId: renewed.paymentMethodId,
+      paymentMethodTitle: renewed.paymentMethodTitle,
+      renewMonths: renewed.renewMonths,
+      renewAttempts: 0,
+      renewNextAt: null,
+      renewError: '',
+    }
+    if (renewed.id !== next.id) {
+      // Старая запись больше не продлевается: иначе её списали бы снова.
+      await store.saveSubscription({ ...renewed, ...AUTOPAY_OFF, status: 'canceled' })
+    }
+    await store.saveSubscription(next)
+    return next
+  }
+
+  if (payment.saveMethod && remote?.paymentMethod?.saved && payment.kind === 'subscription') {
+    const next: Subscription = {
+      ...subscription,
+      autoRenew: true,
+      paymentMethodId: remote.paymentMethod.id,
+      paymentMethodTitle: remote.paymentMethod.title,
+      renewMonths: payment.months > 0 ? payment.months : 1,
+      renewAttempts: 0,
+      renewNextAt: null,
+      renewNoticeFor: null,
+      renewError: '',
+    }
+    await store.saveSubscription(next)
+    return next
+  }
+  return subscription
+}
+
+/** Выключает автопродление и забывает сохранённый способ оплаты. */
+export async function disableAutopay(userId: string, reason = ''): Promise<Subscription | null> {
+  const store = await getStore()
+  const subscription = await store.getActiveSubscription(userId)
+  if (!subscription) return null
+  const next: Subscription = { ...subscription, ...AUTOPAY_OFF, renewError: reason }
+  await store.saveSubscription(next)
+  return next
 }
 
 /**
@@ -235,8 +319,7 @@ export async function markPaymentPaid(payment: Payment): Promise<Subscription | 
  * даже без вебхука — максимум с задержкой до захода пользователя в кабинет.
  */
 export async function syncPendingPayments(userId: string, limit = 5): Promise<number> {
-  if (config.billing.provider !== 'yookassa') return 0
-  if (!config.billing.yookassa.shopId || !config.billing.yookassa.secretKey) return 0
+  if (config.billing.provider !== 'yookassa' || !yookassaConfigured()) return 0
 
   const store = await getStore()
   const payments = await store.listPaymentsByUser(userId, 20)
@@ -247,10 +330,10 @@ export async function syncPendingPayments(userId: string, limit = 5): Promise<nu
     try {
       const remote = await fetchYookassaPayment(payment.providerPaymentId)
       if (remote.status === 'succeeded') {
-        await markPaymentPaid(payment)
+        await markPaymentPaid(payment, remote)
         updated += 1
       } else if (remote.status === 'canceled') {
-        await store.savePayment({ ...payment, status: 'canceled' })
+        await store.savePayment({ ...payment, status: 'canceled', failureReason: remote.cancellationReason })
         updated += 1
       }
     } catch {
@@ -277,6 +360,8 @@ export async function activateTrial(
 
   const expiresAt = new Date(now.getTime() + Math.max(1, days) * 24 * 60 * 60 * 1000)
   const subscription: Subscription = {
+    // Пробный период бесплатный — списывать по его окончании нечего.
+    ...AUTOPAY_OFF,
     id: current ? current.id : newId('sub'),
     userId,
     plan,
@@ -287,7 +372,6 @@ export async function activateTrial(
       current && new Date(current.expiresAt).getTime() > expiresAt.getTime()
         ? current.expiresAt
         : expiresAt.toISOString(),
-    autoRenew: false,
     provider: 'trial',
     providerId: `trial-${days}d`,
     concurrentSessions:
@@ -381,32 +465,17 @@ export async function createUpgradeCheckout(user: User, toPlanId: PlanId): Promi
   const quote = await quoteUpgrade(user.id, toPlanId)
   const store = await getStore()
 
-  const payment: Payment = {
-    id: newId('pay'),
-    userId: user.id,
+  const payment = newPayment(user, {
     kind: 'upgrade',
     plan: quote.to.id,
     fromPlan: quote.from.id,
     upgradeUntil: quote.until,
     months: 0,
     amount: quote.amount,
-    status: 'pending',
-    provider: config.billing.provider,
-    providerPaymentId: '',
-    confirmationUrl: '',
-    createdAt: new Date().toISOString(),
-    paidAt: null,
-  }
+  })
 
   if (config.billing.provider === 'yookassa') {
-    if (!config.billing.yookassa.shopId || !config.billing.yookassa.secretKey) {
-      throw new Error('ЮKassa не настроена: заполните YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY')
-    }
-    const created = await createYookassaPayment(
-      payment,
-      `переход с «${quote.from.name}» на «${quote.to.name}» до ${formatDate(quote.until)}`,
-      user.email,
-    )
+    const created = await sendPaymentToYookassa(payment)
     payment.providerPaymentId = created.id
     payment.confirmationUrl = created.confirmationUrl
   } else {
@@ -457,13 +526,13 @@ export async function applyUpgrade(payment: Payment): Promise<Subscription> {
   // срок всё равно выдаём.
   if (current) await store.saveSubscription({ ...current, status: 'canceled' })
   const subscription: Subscription = {
+    ...AUTOPAY_OFF,
     id: newId('sub'),
     userId: payment.userId,
     plan: to.id,
     status: 'active',
     startedAt: now.toISOString(),
     expiresAt: new Date(until).getTime() > now.getTime() ? until : new Date(now.getTime() + DAY_MS).toISOString(),
-    autoRenew: false,
     provider: payment.provider,
     providerId: payment.providerPaymentId || payment.id,
     concurrentSessions: null,
