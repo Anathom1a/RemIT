@@ -104,7 +104,9 @@ fi
 
 if [[ "$PUSH" == "1" ]]; then
     echo "==> Отправляю ветку"
-    git -C "$FORK" push -u origin "$BRANCH"
+    # Полное имя ссылки: выпуск публикуется под тегом с тем же именем, что и
+    # ветка (remit), и короткое имя git считает неоднозначным.
+    git -C "$FORK" push -u origin "refs/heads/${BRANCH}:refs/heads/${BRANCH}"
 fi
 
 cat <<DONE
