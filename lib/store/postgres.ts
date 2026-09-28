@@ -15,7 +15,7 @@ import type {
   User,
 } from '../types'
 import type { PlanId } from '../plans'
-import type { PaymentStatus, SubscriptionStatus } from '../types'
+import type { PaymentKind, PaymentStatus, SubscriptionStatus } from '../types'
 
 type Row = Record<string, any>
 
@@ -85,7 +85,10 @@ export class PostgresStore implements Store {
     return {
       id: row.id,
       userId: row.user_id,
+      kind: (row.kind ?? 'subscription') as PaymentKind,
       plan: row.plan as PlanId,
+      fromPlan: (row.from_plan ?? null) as PlanId | null,
+      upgradeUntil: iso(row.upgrade_until ?? null),
       months: row.months,
       amount: Number(row.amount),
       status: row.status as PaymentStatus,
@@ -268,8 +271,9 @@ export class PostgresStore implements Store {
 
   async savePayment(payment: Payment): Promise<void> {
     await this.query(
-      `INSERT INTO payments (id, user_id, plan, months, amount, status, provider, provider_payment_id, confirmation_url, created_at, paid_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO payments (id, user_id, plan, months, amount, status, provider, provider_payment_id, confirmation_url,
+         created_at, paid_at, kind, from_plan, upgrade_until)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (id) DO UPDATE SET
          status = EXCLUDED.status,
          provider_payment_id = EXCLUDED.provider_payment_id,
@@ -287,6 +291,9 @@ export class PostgresStore implements Store {
         payment.confirmationUrl,
         payment.createdAt,
         payment.paidAt,
+        payment.kind,
+        payment.fromPlan,
+        payment.upgradeUntil,
       ],
     )
   }
@@ -365,6 +372,15 @@ export class PostgresStore implements Store {
     }
     const rows = await this.query(`SELECT * FROM conn_sessions WHERE ${conditions.join(' AND ')}`, params)
     return rows.map((row) => this.toConnSession(row))
+  }
+
+  async countLimitCuts(subjectKey: string, since: string): Promise<{ count: number; lastAt: string | null }> {
+    const rows = await this.query<{ count: string; last_at: Date | null }>(
+      `SELECT count(*)::text AS count, max(ended_at) AS last_at FROM conn_sessions
+       WHERE subject_key = $1 AND close_reason = 'concurrent_limit' AND ended_at >= $2`,
+      [subjectKey, since],
+    )
+    return { count: Number(rows[0]?.count ?? 0), lastAt: iso(rows[0]?.last_at ?? null) }
   }
 
   async listRecentConnSessions(subjectKeys: string[], limit: number): Promise<ConnSession[]> {

@@ -52,10 +52,23 @@ export interface Subscription {
 
 export type PaymentStatus = 'pending' | 'succeeded' | 'canceled'
 
+/**
+ * subscription — покупка или продление тарифа на N месяцев;
+ * upgrade — доплата за переход на старший тариф до конца текущей подписки.
+ */
+export type PaymentKind = 'subscription' | 'upgrade'
+
 export interface Payment {
   id: string
   userId: string
+  kind: PaymentKind
+  /** Тариф, который покупается; для повышения — тот, на который переходят. */
   plan: PlanId
+  /** Для повышения — тариф, с которого переходят. */
+  fromPlan: PlanId | null
+  /** Для повышения — до какой даты действует новый тариф (конец подписки на момент заказа). */
+  upgradeUntil: string | null
+  /** Для повышения — 0: срок не продлевается. */
   months: number
   amount: number
   status: PaymentStatus
@@ -83,7 +96,7 @@ export interface ConnSession {
   lastTickAt: string
   endedAt: string | null
   seconds: number
-  /** Причина закрытия: client | quota | stale. */
+  /** Причина закрытия: client | quota | concurrent_limit | stale. */
   closeReason: string | null
 }
 

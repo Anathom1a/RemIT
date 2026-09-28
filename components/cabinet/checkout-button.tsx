@@ -5,17 +5,22 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import type { PlanId } from '@/lib/plans'
 
-/** Кнопка оплаты: создаёт заказ и уводит на страницу платёжного провайдера. */
+/**
+ * Кнопка оплаты: создаёт заказ и уводит на страницу платёжного провайдера.
+ * С upgrade — доплата за переход на старший тариф до конца текущей подписки.
+ */
 export function CheckoutButton({
   plan,
-  months,
+  months = 1,
   label,
   variant = 'primary',
+  upgrade = false,
 }: {
   plan: PlanId
-  months: number
+  months?: number
   label: string
   variant?: 'primary' | 'secondary'
+  upgrade?: boolean
 }) {
   const router = useRouter()
   const [pending, setPending] = useState(false)
@@ -25,12 +30,12 @@ export function CheckoutButton({
     setPending(true)
     setError('')
 
-    const response = await fetch('/api/v1/billing/checkout', {
+    const response = await fetch(upgrade ? '/api/v1/billing/upgrade' : '/api/v1/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan, months }),
+      body: JSON.stringify(upgrade ? { plan } : { plan, months }),
     })
-    const data = (await response.json()) as { redirectUrl?: string; error?: string }
+    const data = (await response.json().catch(() => ({}))) as { redirectUrl?: string; error?: string }
 
     setPending(false)
     if (!response.ok || !data.redirectUrl) {

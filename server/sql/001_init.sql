@@ -68,6 +68,12 @@ CREATE TABLE IF NOT EXISTS payments (
     paid_at             TIMESTAMPTZ
 );
 
+-- Доплата за повышение тарифа до конца текущей подписки. Столбцы добавлены
+-- позже, поэтому отдельными ALTER: схема применяется при каждом старте.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'subscription';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS from_plan TEXT;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS upgrade_until TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_provider_idx ON payments(provider_payment_id);
 

@@ -1,5 +1,5 @@
 import { config } from './config'
-import { getPlan, type Plan } from './plans'
+import { getPlan, sessionsWord, upgradeTargetForSessions, type Plan } from './plans'
 import { getStore, type Store } from './store'
 import { getRuntimeSettings } from './settings'
 import { billingDay, humanDuration, nextResetAt } from './time'
@@ -132,12 +132,17 @@ export async function checkQuota(subject: QuotaSubject, now = new Date()): Promi
   }
 
   if (state.activeSessions >= state.concurrentLimit) {
+    const target = upgradeTargetForSessions(state.concurrentLimit, state.planId)
     return {
       allowed: false,
       reason: 'concurrent_limit',
       message:
-        `Достигнут лимит одновременных сессий (${state.concurrentLimit}). ` +
-        `Завершите активное подключение или смените тариф: ${config.brand.domain}/tarify`,
+        `На тарифе «${state.planName}» одновременно доступно ${state.concurrentLimit} ` +
+        `${sessionsWord(state.concurrentLimit)}, и все заняты. Завершите одно из подключений ` +
+        (target.negotiable
+          ? `или напишите нам — подключим больше сессий: ${config.brand.domain}/kabinet/podpiska`
+          : `или перейдите на «${target.name}» (${target.concurrentSessions} ${sessionsWord(target.concurrentSessions)}): ` +
+            `${config.brand.domain}/kabinet/podpiska`),
       state,
     }
   }
@@ -214,7 +219,7 @@ export async function closeSession(hostId: string, connId: number, reason: strin
 }
 
 export interface HeartbeatResult {
-  /** conn_id, которые клиент должен разорвать — лимит исчерпан. */
+  /** conn_id, которые клиент должен разорвать: исчерпано время или превышено число сессий. */
   disconnect: number[]
   states: QuotaState[]
 }
@@ -282,7 +287,49 @@ export async function processHeartbeat(params: {
     }
   }
 
+  await enforceConcurrentLimit(store, params.hostId, states, disconnect, now)
+
   return { disconnect, states: [...states.values()] }
+}
+
+/**
+ * Лимит одновременных сессий.
+ *
+ * Работает на любом образе сервера: патч hbbs не пускает лишнее подключение
+ * заранее, а здесь оно разрывается, даже если hbbs стоковый. Цена — лишняя
+ * сессия успевает открыться и живёт до следующего heartbeat, до 15 секунд.
+ *
+ * Оставляем самые старые сессии, разрываем самые новые: человек, который уже
+ * работает, не должен вылететь из-за того, что коллега открыл ещё одну.
+ * Порядок общий для всех устройств аккаунта, поэтому лишние сессии на других
+ * компьютерах разорвутся на их собственных heartbeat.
+ */
+async function enforceConcurrentLimit(
+  store: Store,
+  hostId: string,
+  states: Map<string, QuotaState>,
+  disconnect: number[],
+  now: Date,
+): Promise<void> {
+  const cut = new Set(disconnect)
+  // Сессия, по которой давно нет heartbeat (компьютер выключили без
+  // завершения), не должна занимать место: её закроет closeStaleSessions.
+  const staleBefore = now.getTime() - config.quota.staleSessionSeconds * 1000
+
+  for (const state of states.values()) {
+    if (state.exhausted) continue
+    const active = (await store.listActiveConnSessions({ subjectKey: state.subjectKey }))
+      .filter((session) => new Date(session.lastTickAt).getTime() >= staleBefore)
+      .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.key.localeCompare(b.key))
+    if (active.length <= state.concurrentLimit) continue
+
+    for (const session of active.slice(state.concurrentLimit)) {
+      if (session.hostId !== hostId || cut.has(session.connId)) continue
+      cut.add(session.connId)
+      disconnect.push(session.connId)
+      await store.saveConnSession({ ...session, endedAt: now.toISOString(), closeReason: 'concurrent_limit' })
+    }
+  }
 }
 
 /** Закрывает сессии, по которым давно не было heartbeat (клиент упал или отключился от сети). */

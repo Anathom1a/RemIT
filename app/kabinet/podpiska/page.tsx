@@ -1,11 +1,14 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { CheckoutButton } from '@/components/cabinet/checkout-button'
+import { LimitBanner } from '@/components/cabinet/limit-banner'
 import { DataTable } from '@/components/ui/data-table'
-import { syncPendingPayments } from '@/lib/billing'
+import { quoteUpgrade, syncPendingPayments, type UpgradeQuote } from '@/lib/billing'
 import { getCurrentUser } from '@/lib/auth'
+import { getLimitNotice } from '@/lib/limit-notice'
+import { userSubject } from '@/lib/quota'
 import { getStore } from '@/lib/store'
-import { PLANS, formatPrice, getPlan, purchasablePlans } from '@/lib/plans'
+import { formatPrice, getPlan, planRank, purchasablePlans, type PlanId } from '@/lib/plans'
 import { formatDate, formatDateTime } from '@/lib/time'
 import { config } from '@/lib/config'
 
@@ -28,6 +31,8 @@ export default async function SubscriptionPage({
 
   const params = await searchParams
   const invoiceId = typeof params.schet === 'string' ? params.schet : ''
+  // Сюда ведёт уведомление о нехватке сессий: этот тариф подсвечиваем.
+  const suggested = typeof params.upgrade === 'string' ? params.upgrade : ''
 
   // Если вебхук ЮKassa не дошёл, статусы подтянутся при открытии страницы.
   await syncPendingPayments(user.id)
@@ -40,6 +45,23 @@ export default async function SubscriptionPage({
   const invoice = invoiceId ? await store.findPaymentById(invoiceId) : null
   const paidPlans = purchasablePlans()
   const corporate = getPlan('corporate')
+
+  // Оплаченная подписка (не пробный период): на старшие тарифы переходим
+  // доплатой за оставшиеся дни, младшие доступны после окончания срока.
+  const paidSubscription = subscription && subscription.provider !== 'trial' ? subscription : null
+  const quotes = new Map<PlanId, UpgradeQuote>()
+  if (paidSubscription) {
+    for (const plan of paidPlans) {
+      if (planRank(plan.id) <= planRank(paidSubscription.plan)) continue
+      try {
+        quotes.set(plan.id, await quoteUpgrade(user.id, plan.id))
+      } catch {
+        // Переход невозможен — у карточки просто не будет кнопки доплаты.
+      }
+    }
+  }
+
+  const limitNotice = await getLimitNotice(userSubject(user.id), 24 * 60 * 60 * 1000)
 
   return (
     <div className="space-y-6">
@@ -59,13 +81,17 @@ export default async function SubscriptionPage({
         )}
       </div>
 
+      {limitNotice && <LimitBanner notice={limitNotice} canProrate={Boolean(paidSubscription)} />}
+
       {invoice && invoice.status === 'pending' && (
         <div className="card border-warning/30 p-6">
           <h2 className="font-semibold text-warning">Счёт на оплату</h2>
           <p className="mt-2 text-sm leading-relaxed text-text-secondary">
             Счёт № <span className="font-mono">{invoice.id}</span> на сумму{' '}
-            <strong>{formatPrice(invoice.amount)}</strong> за тариф «{getPlan(invoice.plan).name}» на{' '}
-            {invoice.months} мес.{' '}
+            <strong>{formatPrice(invoice.amount)}</strong>{' '}
+            {invoice.kind === 'upgrade'
+              ? `за переход на тариф «${getPlan(invoice.plan).name}» до ${formatDate(invoice.upgradeUntil ?? invoice.createdAt)}.`
+              : `за тариф «${getPlan(invoice.plan).name}» на ${invoice.months} мес.`}{' '}
             {invoice.provider === 'yookassa' ? (
               <>
                 Оплата ещё не подтверждена. Если вы уже оплатили, обновите страницу через минуту —
@@ -101,41 +127,78 @@ export default async function SubscriptionPage({
       )}
 
       <div className="grid gap-5 md:grid-cols-3">
-        {paidPlans.map((plan) => (
-          <div
-            key={plan.id}
-            className={`card flex flex-col p-6 ${plan.highlighted ? 'border-brand-500/60' : ''}`}
-          >
-            <h2 className="text-lg font-semibold">{plan.name}</h2>
-            <p className="mt-1 text-sm text-text-muted">{plan.tagline}</p>
-            <p className="mt-4 text-2xl font-semibold">{formatPrice(plan.priceMonthly)}</p>
-            <p className="text-sm text-text-muted">в месяц · {formatPrice(plan.priceYearly)} за год</p>
+        {paidPlans.map((plan) => {
+          const isCurrent = paidSubscription?.plan === plan.id
+          const quote = quotes.get(plan.id)
+          const isLower = paidSubscription && !isCurrent && planRank(plan.id) < planRank(paidSubscription.plan)
+          const isSuggested = suggested === plan.id
+          const accent = isSuggested || (!suggested && plan.highlighted)
 
-            <ul className="mt-5 flex-1 space-y-2 text-sm text-text-secondary">
-              {plan.features.slice(0, 4).map((feature) => (
-                <li key={feature}>• {feature}</li>
-              ))}
-            </ul>
+          return (
+            <div
+              key={plan.id}
+              id={`plan-${plan.id}`}
+              className={`card flex scroll-mt-24 flex-col p-6 ${accent ? 'border-brand-500/60' : ''}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold">{plan.name}</h2>
+                {isCurrent && <span className="pill !py-0.5 !text-[11px]">ваш тариф</span>}
+                {isSuggested && !isCurrent && <span className="pill !py-0.5 !text-[11px]">рекомендуем</span>}
+              </div>
+              <p className="mt-1 text-sm text-text-muted">{plan.tagline}</p>
+              <p className="mt-4 text-2xl font-semibold">{formatPrice(plan.priceMonthly)}</p>
+              <p className="text-sm text-text-muted">в месяц · {formatPrice(plan.priceYearly)} за год</p>
 
-            <div className="mt-6 space-y-2">
-              <CheckoutButton
-                plan={plan.id}
-                months={1}
-                label={`Оплатить месяц — ${formatPrice(plan.priceMonthly)}`}
-                variant={plan.highlighted ? 'primary' : 'secondary'}
-              />
-              <CheckoutButton
-                plan={plan.id}
-                months={12}
-                label={`Год — ${formatPrice(plan.priceYearly)}`}
-                variant="secondary"
-              />
+              <ul className="mt-5 flex-1 space-y-2 text-sm text-text-secondary">
+                {plan.features.slice(0, 4).map((feature) => (
+                  <li key={feature}>• {feature}</li>
+                ))}
+              </ul>
+
+              <div className="mt-6 space-y-2">
+                {quote ? (
+                  <>
+                    <CheckoutButton
+                      plan={plan.id}
+                      upgrade
+                      label={`Перейти сейчас — доплата ${formatPrice(quote.amount)}`}
+                      variant={accent ? 'primary' : 'secondary'}
+                    />
+                    <p className="text-xs leading-relaxed text-text-muted">
+                      Тариф «{plan.name}» включится сразу и будет действовать до {formatDate(quote.until)} —
+                      платите только разницу за {quote.remainingDays} дн.
+                      {quote.basis === 'year' ? ' Считаем по годовым ценам, как вы покупали.' : ''} Одновременных
+                      сессий станет {plan.concurrentSessions}.
+                    </p>
+                  </>
+                ) : isLower ? (
+                  <p className="rounded-xl border border-white/8 bg-ink-850/50 p-3 text-xs leading-relaxed text-text-muted">
+                    Перейти на этот тариф можно после окончания текущей подписки —{' '}
+                    {formatDate(paidSubscription.expiresAt)}.
+                  </p>
+                ) : (
+                  <>
+                    <CheckoutButton
+                      plan={plan.id}
+                      months={1}
+                      label={`${isCurrent ? 'Продлить на месяц' : 'Оплатить месяц'} — ${formatPrice(plan.priceMonthly)}`}
+                      variant={accent && !isCurrent ? 'primary' : 'secondary'}
+                    />
+                    <CheckoutButton
+                      plan={plan.id}
+                      months={12}
+                      label={`${isCurrent ? 'Продлить на год' : 'Год'} — ${formatPrice(plan.priceYearly)}`}
+                      variant="secondary"
+                    />
+                  </>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
 
-      <div className="card grid gap-6 p-6 md:grid-cols-[1.4fr_1fr] md:items-center">
+      <div id="corporate" className="card grid scroll-mt-24 gap-6 p-6 md:grid-cols-[1.4fr_1fr] md:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-lg font-semibold">{corporate.name}</h2>
@@ -179,8 +242,22 @@ export default async function SubscriptionPage({
           empty="Платежей пока не было."
           columns={[
             { key: 'date', header: 'Дата', primary: true, render: (payment) => formatDateTime(payment.createdAt) },
-            { key: 'plan', header: 'Тариф', render: (payment) => getPlan(payment.plan).name },
-            { key: 'months', header: 'Период', render: (payment) => `${payment.months} мес.` },
+            {
+              key: 'plan',
+              header: 'Тариф',
+              render: (payment) =>
+                payment.kind === 'upgrade' && payment.fromPlan
+                  ? `${getPlan(payment.fromPlan).name} → ${getPlan(payment.plan).name}`
+                  : getPlan(payment.plan).name,
+            },
+            {
+              key: 'months',
+              header: 'Период',
+              render: (payment) =>
+                payment.kind === 'upgrade'
+                  ? `повышение до ${formatDate(payment.upgradeUntil ?? payment.createdAt)}`
+                  : `${payment.months} мес.`,
+            },
             {
               key: 'amount',
               header: 'Сумма',

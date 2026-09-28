@@ -159,3 +159,38 @@ export function formatPrice(kopeks: number): string {
     maximumFractionDigits: kopeks % 100 === 0 ? 0 : 2,
   }).format(kopeks / 100)
 }
+
+/** Место тарифа в сетке: чем больше, тем выше тариф. */
+export function planRank(id: string | null | undefined): number {
+  return PLANS.indexOf(getPlan(id))
+}
+
+/**
+ * Куда предлагать перейти, когда не хватило одновременных сессий: ближайший
+ * тариф, где их больше текущего лимита. Если такого в продаже нет — договорной.
+ */
+export function upgradeTargetForSessions(currentLimit: number, currentPlan: string): Plan {
+  const rank = planRank(currentPlan)
+  return (
+    purchasablePlans().find((plan) => planRank(plan.id) > rank && plan.concurrentSessions > currentLimit) ??
+    PLANS_BY_ID.corporate
+  )
+}
+
+/** 1 сессия, 3 сессии, 10 сессий. */
+export function sessionsWord(count: number): string {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return 'сессия'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'сессии'
+  return 'сессий'
+}
+
+/** 1 подключение, 2 подключения, 5 подключений. */
+export function connectionsWord(count: number): string {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return 'подключение'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'подключения'
+  return 'подключений'
+}

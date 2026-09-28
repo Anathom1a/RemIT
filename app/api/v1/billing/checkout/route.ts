@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
-import { createCheckout } from '@/lib/billing'
+import { CheckoutError, createCheckout } from '@/lib/billing'
 import { PLANS_BY_ID, getPlan, type PlanId } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
@@ -31,6 +31,9 @@ export async function POST(request: Request) {
     const { payment, redirectUrl } = await createCheckout(user, plan, months)
     return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl })
   } catch (error) {
+    if (error instanceof CheckoutError) {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
     // Подробности — в журнал сервера: пользователю незачем видеть, какие
     // ключи платёжного сервиса не заполнены.
     console.error('[billing] не удалось создать платёж:', error)

@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import { config } from './config'
-import { getPlan, isFreePlan, type PlanId } from './plans'
+import { getPlan, isFreePlan, planRank, type Plan, type PlanId } from './plans'
 import { getStore } from './store'
 import { newId } from './auth'
+import { formatDate } from './time'
 import type { Payment, Subscription, User } from './types'
 
 /**
@@ -11,6 +12,13 @@ import type { Payment, Subscription, User } from './types'
  *   manual   — счёт выставляется вручную, оплату подтверждает администратор
  *              через POST /api/v1/billing/confirm с сервисным токеном.
  */
+
+/**
+ * Ошибка, которую можно показать покупателю как есть: неверный тариф, переход
+ * не туда и тому подобное. Всё остальное (сбой ЮKassa, не заданы ключи)
+ * пишется в журнал, а покупатель видит нейтральное «оплата недоступна».
+ */
+export class CheckoutError extends Error {}
 
 export interface CheckoutResult {
   payment: Payment
@@ -32,19 +40,36 @@ export function calculateAmount(planId: PlanId, months: number): number {
 export async function createCheckout(user: User, planId: PlanId, months: number): Promise<CheckoutResult> {
   const plan = getPlan(planId)
   if (isFreePlan(planId)) {
-    throw new Error('Бесплатный тариф не требует оплаты')
+    throw new CheckoutError('Бесплатный тариф не требует оплаты')
   }
   if (plan.negotiable) {
-    throw new Error(
+    throw new CheckoutError(
       `Тариф «${plan.name}» оформляется по договору: число одновременных сессий и цена согласовываются отдельно. Напишите в отдел продаж — выставим счёт.`,
     )
   }
-  const amount = calculateAmount(planId, months)
   const store = await getStore()
+
+  // Покупка другого тарифа поверх оплаченной подписки раньше отменяла её и
+  // начинала новую с сегодняшнего дня — оплаченные дни сгорали. Теперь на
+  // старший тариф переходят доплатой, на младший — после окончания срока.
+  const current = await store.getActiveSubscription(user.id)
+  if (current && current.provider !== 'trial' && current.plan !== planId) {
+    const currentPlan = getPlan(current.plan)
+    throw new CheckoutError(
+      planRank(planId) > planRank(current.plan)
+        ? `Перейти на «${plan.name}» можно доплатой только за оставшиеся дни тарифа «${currentPlan.name}» — кнопка на карточке тарифа.`
+        : `Тариф «${currentPlan.name}» оплачен до ${formatDate(current.expiresAt)}. Перейти на «${plan.name}» можно после окончания срока.`,
+    )
+  }
+
+  const amount = calculateAmount(planId, months)
   const payment: Payment = {
     id: newId('pay'),
     userId: user.id,
+    kind: 'subscription',
     plan: planId,
+    fromPlan: null,
+    upgradeUntil: null,
     months,
     amount,
     status: 'pending',
@@ -59,7 +84,7 @@ export async function createCheckout(user: User, planId: PlanId, months: number)
     if (!config.billing.yookassa.shopId || !config.billing.yookassa.secretKey) {
       throw new Error('ЮKassa не настроена: заполните YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY')
     }
-    const created = await createYookassaPayment(payment, plan.name, user.email)
+    const created = await createYookassaPayment(payment, `тариф «${plan.name}», ${months} мес.`, user.email)
     payment.providerPaymentId = created.id
     payment.confirmationUrl = created.confirmationUrl
   } else {
@@ -82,7 +107,7 @@ function yookassaAuthHeader(): string {
   return `Basic ${Buffer.from(`${shopId}:${secretKey}`).toString('base64')}`
 }
 
-async function createYookassaPayment(payment: Payment, planName: string, email: string): Promise<YookassaPayment> {
+async function createYookassaPayment(payment: Payment, what: string, email: string): Promise<YookassaPayment> {
   const response = await fetch('https://api.yookassa.ru/v3/payments', {
     method: 'POST',
     headers: {
@@ -94,13 +119,19 @@ async function createYookassaPayment(payment: Payment, planName: string, email: 
       amount: { value: (payment.amount / 100).toFixed(2), currency: 'RUB' },
       capture: true,
       confirmation: { type: 'redirect', return_url: config.billing.yookassa.returnUrl },
-      description: `${config.brand.name}: тариф «${planName}», ${payment.months} мес.`,
-      metadata: { paymentId: payment.id, userId: payment.userId, plan: payment.plan, months: String(payment.months) },
+      description: `${config.brand.name}: ${what}`,
+      metadata: {
+        paymentId: payment.id,
+        userId: payment.userId,
+        kind: payment.kind,
+        plan: payment.plan,
+        months: String(payment.months),
+      },
       receipt: {
         customer: { email },
         items: [
           {
-            description: `Подписка ${config.brand.name} «${planName}», ${payment.months} мес.`,
+            description: `Подписка ${config.brand.name}: ${what}`,
             quantity: '1.00',
             amount: { value: (payment.amount / 100).toFixed(2), currency: 'RUB' },
             vat_code: 1,
@@ -191,6 +222,7 @@ export async function markPaymentPaid(payment: Payment): Promise<Subscription | 
   if (payment.status === 'succeeded') return store.getActiveSubscription(payment.userId)
   const paid: Payment = { ...payment, status: 'succeeded', paidAt: new Date().toISOString() }
   await store.savePayment(paid)
+  if (paid.kind === 'upgrade') return applyUpgrade(paid)
   return activateSubscription(paid.userId, paid.plan, paid.months, paid.provider, paid.providerPaymentId)
 }
 
@@ -262,6 +294,180 @@ export async function activateTrial(
       concurrentSessions === undefined ? (current?.concurrentSessions ?? null) : concurrentSessions,
   }
 
+  await store.saveSubscription(subscription)
+  return subscription
+}
+
+/* --------------------------------------------------------------------------
+ * Повышение тарифа до конца оплаченного срока
+ *
+ * Человек на «Профи», оплаченном до 12 октября, переходит на «Бизнес» сразу и
+ * до того же 12 октября, доплачивая только разницу в цене за оставшиеся дни.
+ * Срок не продлевается — продлить можно потом обычной оплатой уже нового
+ * тарифа.
+ * ------------------------------------------------------------------------ */
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export interface UpgradeQuote {
+  from: Plan
+  to: Plan
+  /** Сколько дней остаётся, с округлением вверх: начатый день тоже оплачен. */
+  remainingDays: number
+  /** Конец текущей подписки — до него действует новый тариф. */
+  until: string
+  /** Доплата в копейках, округлена вверх до рубля. */
+  amount: number
+  /**
+   * По какой цене считали: подписку, купленную на год, пересчитываем по
+   * годовым ценам — иначе доплата съела бы скидку за год.
+   */
+  basis: 'month' | 'year'
+}
+
+/**
+ * Сколько стоит перейти на тариф toPlanId до конца текущей подписки.
+ * Бросает CheckoutError с понятным объяснением, если переход невозможен.
+ */
+export async function quoteUpgrade(userId: string, toPlanId: PlanId, now = new Date()): Promise<UpgradeQuote> {
+  const store = await getStore()
+  const current = await store.getActiveSubscription(userId)
+  const to = getPlan(toPlanId)
+
+  if (!current) {
+    throw new CheckoutError('Активной подписки нет — выберите тариф и оплатите его целиком.')
+  }
+  if (current.provider === 'trial') {
+    // За пробный период не платили, пересчитывать нечего.
+    throw new CheckoutError('Во время пробного периода тариф оплачивается целиком — доплата не нужна.')
+  }
+  const from = getPlan(current.plan)
+  if (from.negotiable || to.negotiable || to.priceMonthly === 0) {
+    throw new CheckoutError('Условия корпоративного тарифа согласовываются отдельно — напишите в отдел продаж.')
+  }
+  if (planRank(to.id) <= planRank(from.id)) {
+    throw new CheckoutError(`Тариф «${to.name}» не старше текущего «${from.name}».`)
+  }
+
+  const remainingMs = new Date(current.expiresAt).getTime() - now.getTime()
+  if (remainingMs <= 0) {
+    throw new CheckoutError('Срок подписки уже закончился — оформите новый тариф.')
+  }
+  const remainingDays = Math.ceil(remainingMs / DAY_MS)
+
+  // Как была оплачена текущая подписка: последний платёж за этот тариф.
+  // Подписку, выданную вручную, считаем по месячной цене.
+  const payments = await store.listPaymentsByUser(userId, 50)
+  const lastPaid = payments.find(
+    (payment) => payment.status === 'succeeded' && payment.kind === 'subscription' && payment.plan === from.id,
+  )
+  const basis: 'month' | 'year' = lastPaid && lastPaid.months >= 12 ? 'year' : 'month'
+
+  // Разница цены за период × оставшиеся дни / дней в периоде. Сначала
+  // умножаем, потом делим и округляем до копейки: иначе погрешность дробей
+  // (160000.00000000003) при округлении вверх до рубля даёт лишний рубль.
+  const period = basis === 'year' ? 365 : 30
+  const priceDiff =
+    basis === 'year' ? to.priceYearly - from.priceYearly : to.priceMonthly - from.priceMonthly
+  const kopecks = Math.round((priceDiff * remainingDays) / period)
+  // До рубля вверх, но не меньше рубля: ЮKassa не принимает платёж дешевле.
+  const amount = Math.max(100, Math.ceil(kopecks / 100) * 100)
+
+  return { from, to, remainingDays, until: current.expiresAt, amount, basis }
+}
+
+/** Создаёт платёж за повышение тарифа. */
+export async function createUpgradeCheckout(user: User, toPlanId: PlanId): Promise<CheckoutResult> {
+  const quote = await quoteUpgrade(user.id, toPlanId)
+  const store = await getStore()
+
+  const payment: Payment = {
+    id: newId('pay'),
+    userId: user.id,
+    kind: 'upgrade',
+    plan: quote.to.id,
+    fromPlan: quote.from.id,
+    upgradeUntil: quote.until,
+    months: 0,
+    amount: quote.amount,
+    status: 'pending',
+    provider: config.billing.provider,
+    providerPaymentId: '',
+    confirmationUrl: '',
+    createdAt: new Date().toISOString(),
+    paidAt: null,
+  }
+
+  if (config.billing.provider === 'yookassa') {
+    if (!config.billing.yookassa.shopId || !config.billing.yookassa.secretKey) {
+      throw new Error('ЮKassa не настроена: заполните YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY')
+    }
+    const created = await createYookassaPayment(
+      payment,
+      `переход с «${quote.from.name}» на «${quote.to.name}» до ${formatDate(quote.until)}`,
+      user.email,
+    )
+    payment.providerPaymentId = created.id
+    payment.confirmationUrl = created.confirmationUrl
+  } else {
+    payment.confirmationUrl = `/kabinet/podpiska?schet=${payment.id}`
+  }
+
+  await store.createPayment(payment)
+  return { payment, redirectUrl: payment.confirmationUrl }
+}
+
+/**
+ * Включает оплаченный старший тариф. Идемпотентно: повторный вызов по тому
+ * же платежу ничего не меняет.
+ *
+ * Между заказом и оплатой подписка могла измениться — продлиться, закончиться
+ * или уже повыситься другим платежом. Правило одно: человек получает то, за
+ * что заплатил, — тариф не ниже оплаченного как минимум до upgradeUntil.
+ */
+export async function applyUpgrade(payment: Payment): Promise<Subscription> {
+  const store = await getStore()
+  const now = new Date()
+  const to = getPlan(payment.plan)
+  const until = payment.upgradeUntil ?? now.toISOString()
+  const current = await store.getActiveSubscription(payment.userId)
+
+  if (current && current.provider !== 'trial') {
+    const plan = planRank(current.plan) >= planRank(to.id) ? current.plan : to.id
+    const expiresAt = new Date(current.expiresAt).getTime() >= new Date(until).getTime() ? current.expiresAt : until
+    // Персональный лимит сессий сохраняем, только если он больше, чем даёт
+    // новый тариф: иначе повышение лишило бы человека сессий.
+    const override =
+      current.concurrentSessions != null && current.concurrentSessions > getPlan(plan).concurrentSessions
+        ? current.concurrentSessions
+        : null
+    const upgraded: Subscription = {
+      ...current,
+      plan,
+      expiresAt,
+      concurrentSessions: override,
+      provider: payment.provider,
+      providerId: payment.providerPaymentId || payment.id,
+    }
+    await store.saveSubscription(upgraded)
+    return upgraded
+  }
+
+  // Подписка успела закончиться (или сменилась пробным периодом) — оплаченный
+  // срок всё равно выдаём.
+  if (current) await store.saveSubscription({ ...current, status: 'canceled' })
+  const subscription: Subscription = {
+    id: newId('sub'),
+    userId: payment.userId,
+    plan: to.id,
+    status: 'active',
+    startedAt: now.toISOString(),
+    expiresAt: new Date(until).getTime() > now.getTime() ? until : new Date(now.getTime() + DAY_MS).toISOString(),
+    autoRenew: false,
+    provider: payment.provider,
+    providerId: payment.providerPaymentId || payment.id,
+    concurrentSessions: null,
+  }
   await store.saveSubscription(subscription)
   return subscription
 }

@@ -56,7 +56,10 @@ export default async function AdminPaymentsPage() {
             {
               key: 'plan',
               header: 'Тариф',
-              render: (payment) => `${getPlan(payment.plan).name}, ${payment.months} мес.`,
+              render: (payment) =>
+                payment.kind === 'upgrade' && payment.fromPlan
+                  ? `${getPlan(payment.fromPlan).name} → ${getPlan(payment.plan).name}, доплата`
+                  : `${getPlan(payment.plan).name}, ${payment.months} мес.`,
             },
             {
               key: 'amount',

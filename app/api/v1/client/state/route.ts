@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { config } from '@/lib/config'
+import { getLimitNotice } from '@/lib/limit-notice'
 import { deviceSubject, getQuotaState, resolveSubject, userSubject } from '@/lib/quota'
 import { getStore } from '@/lib/store'
 import { getPlan } from '@/lib/plans'
@@ -47,9 +48,31 @@ export async function POST(request: Request) {
   const isTrial = subscription?.provider === 'trial'
   const site = config.rustdesk.apiServer.replace(/\/$/, '') || `https://${config.brand.domain}`
 
+  // Разрывы по лимиту одновременных сессий за последние 15 минут. Карточка
+  // в клиенте обновляется раз в минуту, так что человек увидит причину, пока
+  // ещё помнит, что у него оборвалось подключение.
+  const limitNotice = await getLimitNotice(subject, 15 * 60 * 1000)
+
   // Готовая строка для клиента: приложению остаётся только показать её.
   let message: string
-  if (state.exhausted) {
+  let alert = state.exhausted
+  let linkUrl = state.exhausted ? `${site}/tarify` : `${site}/kabinet`
+  let linkText = state.exhausted ? 'Посмотреть тарифы' : 'Личный кабинет'
+
+  if (limitNotice && !state.exhausted) {
+    message = `Подключение прервано: ${limitNotice.reason}`
+    alert = true
+    if (subject.userId) {
+      linkUrl = `${site}${limitNotice.upgradePath}`
+      linkText = limitNotice.target.negotiable
+        ? 'Нужно больше сессий — напишите нам'
+        : `Перейти на «${limitNotice.target.name}»`
+    } else {
+      // Без аккаунта повышать нечего: сначала регистрация и привязка устройства.
+      linkUrl = `${site}/tarify`
+      linkText = 'Посмотреть тарифы'
+    }
+  } else if (state.exhausted) {
     message = `Бесплатные ${humanDuration(state.limitSeconds ?? 0)} на сегодня израсходованы`
   } else if (state.limitSeconds === null && subscription) {
     message = isTrial
@@ -76,6 +99,16 @@ export async function POST(request: Request) {
     expiresAt: subscription?.expiresAt ?? null,
     expiresAtText: subscription ? formatDate(subscription.expiresAt) : null,
     message,
+    // Карточку выделить как предупреждение и куда вести по ссылке под ней.
+    alert,
+    linkUrl,
+    linkText,
+    // Только когда карточка говорит именно о разрыве: при исчерпанном
+    // времени важнее сообщить о нём.
+    limitCut:
+      limitNotice && !state.exhausted
+        ? { count: limitNotice.count, lastAt: limitNotice.lastAt, target: limitNotice.target.id }
+        : null,
     // Куда вести пользователя из клиента.
     siteUrl: site,
     tariffUrl: `${site}/tarify`,

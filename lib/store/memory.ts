@@ -75,7 +75,13 @@ export class MemoryStore implements Store {
       this.authSessions = new Map(snapshot.authSessions?.map((s) => [s.tokenHash, s]))
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
       this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, s]))
-      this.payments = new Map(snapshot.payments?.map((p) => [p.id, p]))
+      // kind, fromPlan и upgradeUntil появились позже: у старых записей их нет.
+      this.payments = new Map(
+        snapshot.payments?.map((p) => [
+          p.id,
+          { ...p, kind: p.kind ?? 'subscription', fromPlan: p.fromPlan ?? null, upgradeUntil: p.upgradeUntil ?? null },
+        ]),
+      )
       this.connSessions = new Map(snapshot.connSessions?.map((s) => [s.key, s]))
       this.usage = new Map(snapshot.usage?.map((u) => [`${u.subjectKey}|${u.day}`, u]))
       this.settings = snapshot.settings ?? {}
@@ -296,6 +302,19 @@ export class MemoryStore implements Store {
       .filter((s) => keys.has(s.subjectKey))
       .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
       .slice(0, limit)
+  }
+
+  async countLimitCuts(subjectKey: string, since: string): Promise<{ count: number; lastAt: string | null }> {
+    await this.sync()
+    const cuts = [...this.connSessions.values()].filter(
+      (s) =>
+        s.subjectKey === subjectKey &&
+        s.closeReason === 'concurrent_limit' &&
+        s.endedAt !== null &&
+        s.endedAt >= since,
+    )
+    const lastAt = cuts.reduce<string | null>((max, s) => (!max || s.endedAt! > max ? s.endedAt : max), null)
+    return { count: cuts.length, lastAt }
   }
 
   async addUsage(subjectKey: string, day: string, seconds: number): Promise<UsageDay> {

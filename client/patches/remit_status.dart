@@ -23,6 +23,8 @@ class RemITStatus {
   const RemITStatus({
     required this.message,
     required this.exhausted,
+    required this.alert,
+    required this.limitCut,
     required this.usedSeconds,
     required this.limitSeconds,
     required this.linkUrl,
@@ -31,6 +33,10 @@ class RemITStatus {
 
   final String message;
   final bool exhausted;
+  // Выделить карточку как предупреждение.
+  final bool alert;
+  // Недавно разорвано подключение из-за лимита одновременных сессий.
+  final bool limitCut;
   final int usedSeconds;
   final int? limitSeconds;
   final String linkUrl;
@@ -88,13 +94,24 @@ class _RemITStatusCardState extends State<RemITStatusCard> {
       final cabinet = (data['cabinetUrl'] ?? data['siteUrl'] ?? kRemITSite).toString();
       final tariffs = (data['tariffUrl'] ?? kRemITSite).toString();
 
+      // Ссылку и её подпись сервер присылает сам: так новые поводы для
+      // уведомления (например, превышен лимит одновременных сессий) не
+      // требуют выпускать новую версию клиента. Поля может не быть у
+      // старого сервера — тогда решаем, как раньше.
+      final serverLink = (data['linkUrl'] ?? '').toString();
+      final serverLinkText = (data['linkText'] ?? '').toString();
+
       final status = RemITStatus(
         message: (data['message'] ?? '').toString(),
         exhausted: exhausted,
+        alert: data['alert'] == true || exhausted,
+        limitCut: data['limitCut'] != null,
         usedSeconds: (data['usedSeconds'] as num?)?.toInt() ?? 0,
         limitSeconds: (data['limitSeconds'] as num?)?.toInt(),
-        linkUrl: exhausted ? tariffs : cabinet,
-        linkText: exhausted ? 'Посмотреть тарифы' : 'Личный кабинет',
+        linkUrl: serverLink.isNotEmpty ? serverLink : (exhausted ? tariffs : cabinet),
+        linkText: serverLinkText.isNotEmpty
+            ? serverLinkText
+            : (exhausted ? 'Посмотреть тарифы' : 'Личный кабинет'),
       );
 
       if (mounted) {
@@ -113,7 +130,7 @@ class _RemITStatusCardState extends State<RemITStatusCard> {
     }
 
     final theme = Theme.of(context);
-    final accent = status.exhausted ? const Color(0xFFE05B5B) : theme.colorScheme.primary;
+    final accent = status.alert ? const Color(0xFFE05B5B) : theme.colorScheme.primary;
     final limit = status.limitSeconds;
     final double? progress =
         (limit != null && limit > 0) ? (status.usedSeconds / limit).clamp(0.0, 1.0).toDouble() : null;
@@ -132,7 +149,9 @@ class _RemITStatusCardState extends State<RemITStatusCard> {
           Row(
             children: [
               Icon(
-                status.exhausted ? Icons.hourglass_bottom : Icons.schedule,
+                status.limitCut
+                    ? Icons.link_off
+                    : (status.exhausted ? Icons.hourglass_bottom : Icons.schedule),
                 size: 18,
                 color: accent,
               ),

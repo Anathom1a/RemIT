@@ -51,6 +51,8 @@ export interface Store {
   saveConnSession(session: ConnSession): Promise<void>
   listActiveConnSessions(filter: { hostId?: string; subjectKey?: string }): Promise<ConnSession[]>
   listRecentConnSessions(subjectKeys: string[], limit: number): Promise<ConnSession[]>
+  /** Сколько сессий разорвано из-за лимита одновременных сессий с момента since. */
+  countLimitCuts(subjectKey: string, since: string): Promise<{ count: number; lastAt: string | null }>
 
   addUsage(subjectKey: string, day: string, seconds: number): Promise<UsageDay>
   getUsage(subjectKey: string, day: string): Promise<UsageDay>

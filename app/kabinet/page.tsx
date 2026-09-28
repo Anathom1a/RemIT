@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation'
 import { QuotaRing } from '@/components/ui/quota-ring'
 import { DataTable } from '@/components/ui/data-table'
 import { ButtonLink } from '@/components/ui/button'
+import { LimitBanner } from '@/components/cabinet/limit-banner'
+import { getLimitNotice } from '@/lib/limit-notice'
 import { getCurrentUser } from '@/lib/auth'
 import { getQuotaState, userSubject } from '@/lib/quota'
 import { getStore } from '@/lib/store'
@@ -23,6 +25,7 @@ export default async function CabinetPage() {
     store.getActiveSubscription(user.id),
     store.listDevicesByUser(user.id),
   ])
+  const limitNotice = await getLimitNotice(userSubject(user.id), 24 * 60 * 60 * 1000)
   const sessions = await store.listRecentConnSessions(
     [`user:${user.id}`, ...devices.map((device) => `device:${device.rustdeskId}`)],
     10,
@@ -36,6 +39,13 @@ export default async function CabinetPage() {
           Тариф «{state.planName}» · обнуление лимита {formatDateTime(state.resetAt)}
         </p>
       </div>
+
+      {limitNotice && (
+        <LimitBanner
+          notice={limitNotice}
+          canProrate={Boolean(subscription && subscription.provider !== 'trial')}
+        />
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[320px_1fr]">
         <div className="card flex flex-col items-center p-8">
