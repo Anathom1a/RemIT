@@ -61,7 +61,7 @@ hbbs знает ключ `JWT_KEY`, которым сайт подписывае
 | `/api/ab`, `/api/ab/*` | адресные книги: личная, общие, метки, доступ |
 | `/api/users`, `/api/peers`, `/api/device-group/accessible` | вкладка «Доступные устройства»: вы и ваша команда, группы устройств |
 | `/api/login-options`, `/api/oidc/auth`, `/api/oidc/auth-query` | вход в клиенте через VK ID |
-| `/webclient/`, `/webclient-config/index.js`, `/api/server-config`, `/api/shared-peer` | веб-клиент (бета) и гостевые ссылки |
+| `/webclient`, `/webclient-config/index.js`, `/api/server-config`, `/api/shared-peer` | веб-клиент (бета, платные тарифы) и гостевые ссылки |
 | порты 21118, 21119 (nginx, TLS) | WebSocket веб-клиента к hbbs и hbbr |
 | `/api/version/latest`, `/api/v1/updates/*` | сервер обновлений клиента |
 

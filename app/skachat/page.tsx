@@ -160,12 +160,12 @@ export default async function DownloadPage() {
                 Веб-клиент <span className="pill !py-0.5 !text-[11px]">бета</span>
               </h2>
               <p className="mt-1.5 text-sm text-text-secondary">
-                Нельзя ничего устанавливать? Подключитесь из браузера — на любом тарифе. Веб-клиент в бета-тесте:
-                для постоянной работы лучше приложение.
+                Нельзя ничего устанавливать? Подключайтесь из браузера — на любом платном тарифе. Веб-клиент в
+                бета-тесте: для постоянной работы лучше приложение.
               </p>
             </div>
             <a
-              href="/webclient/"
+              href="/webclient"
               target="_blank"
               rel="noopener"
               className="rounded-xl border border-white/12 bg-ink-800/70 px-4 py-2 text-sm text-text-primary hover:border-white/25"

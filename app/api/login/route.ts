@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { BLOCKED_MESSAGE } from '@/lib/accounts'
+import { WEBCLIENT_PAID_ONLY, hasWebClient, isWebClientLogin } from '@/lib/webclient'
 import { bindLoginDevice, issueClientToken, readJson, userPayload } from '@/lib/client-api'
 import { checkCredentials, clearLoginFailures, loginBlocked, recordLoginFailure } from '@/lib/login-guard'
 
@@ -28,6 +29,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Неверная почта или пароль' }, { status: 400 })
   }
   clearLoginFailures(email)
+
+  // Вход из веб-клиента (браузер) — только на платном тарифе.
+  if (isWebClientLogin(request, payload) && !(await hasWebClient(user.id))) {
+    return NextResponse.json({ error: WEBCLIENT_PAID_ONLY }, { status: 403 })
+  }
 
   const info = (payload.deviceInfo ?? {}) as Record<string, unknown>
   const deviceId = String(payload.id ?? '').trim()

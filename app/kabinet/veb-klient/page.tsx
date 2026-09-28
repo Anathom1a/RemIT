@@ -6,7 +6,8 @@ import { getCurrentUser } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
-import { shareUrl } from '@/lib/webclient'
+import { hasWebClient, shareUrl } from '@/lib/webclient'
+import { purchasablePlans } from '@/lib/plans'
 
 export const metadata: Metadata = { title: 'Веб-клиент' }
 export const dynamic = 'force-dynamic'
@@ -16,6 +17,8 @@ export default async function WebClientPage() {
   if (!user) redirect('/vhod')
 
   const store = await getStore()
+  if (!(await hasWebClient(user.id))) return <Upsell />
+
   const now = new Date().toISOString()
   const shares = (await store.listWebSharesByUser(user.id)).filter((share) => !share.expiresAt || share.expiresAt > now)
   const devices = await store.listDevicesByUser(user.id)
@@ -27,18 +30,18 @@ export default async function WebClientPage() {
           Веб-клиент <span className="pill !py-0.5 !text-[11px] align-middle">бета</span>
         </h1>
         <p className="mt-1 text-sm text-text-muted">
-          Подключение из браузера, без установки. Доступен на любом тарифе; лимиты тарифа действуют как в приложении.
+          Подключение из браузера, без установки. Входит в любой платный тариф.
         </p>
       </div>
 
       <div className="card p-6">
         <h2 className="font-semibold">Открыть веб-клиент</h2>
         <p className="mt-1.5 text-sm text-text-secondary">
-          Войдите в нём почтой и паролем от кабинета — появится ваша адресная книга. Веб-клиент в бета-тесте: часть
-          функций приложения ({config.brand.name} для компьютера) в нём пока нет, возможны сбои.
+          Вы войдёте в нём автоматически — с вашей адресной книгой и по вашей подписке. Веб-клиент в бета-тесте:
+          части функций приложения {config.brand.name} в нём пока нет, возможны сбои.
         </p>
         <a
-          href="/webclient/"
+          href="/webclient"
           target="_blank"
           rel="noopener"
           className="mt-4 inline-flex h-9 items-center rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 px-3.5 text-sm font-medium text-white"
@@ -86,6 +89,39 @@ export default async function WebClientPage() {
             ))}
           </ul>
         )}
+      </div>
+    </div>
+  )
+}
+
+/** Бесплатный тариф: веб-клиента нет — объясняем и ведём к тарифам. */
+function Upsell() {
+  const cheapest = purchasablePlans()[0]
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">
+          Веб-клиент <span className="pill !py-0.5 !text-[11px] align-middle">бета</span>
+        </h1>
+        <p className="mt-1 text-sm text-text-muted">Подключение из браузера, без установки.</p>
+      </div>
+      <div className="card border-brand-500/35 p-6">
+        <h2 className="font-semibold">Входит в любой платный тариф</h2>
+        <p className="mt-1.5 text-sm text-text-secondary">
+          На бесплатном тарифе подключайтесь из приложения {config.brand.name}. Веб-клиент и гостевые ссылки для
+          подключения из браузера появятся с подпиской{cheapest ? ` — например, «${cheapest.name}»` : ''}.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <a
+            href="/kabinet/podpiska"
+            className="inline-flex h-9 items-center rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 px-3.5 text-sm font-medium text-white"
+          >
+            Выбрать тариф
+          </a>
+          <a href="/skachat" className="inline-flex h-9 items-center rounded-xl px-3.5 text-sm text-text-secondary hover:text-text-primary">
+            Скачать приложение
+          </a>
+        </div>
       </div>
     </div>
   )

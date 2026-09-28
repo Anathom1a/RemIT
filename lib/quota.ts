@@ -16,6 +16,32 @@ import { newId } from './auth'
  * Новые подключения дополнительно отклоняет hbbs через /api/v1/quota/check.
  */
 
+/** ID, под которым подключается веб-клиент RustDesk. */
+export const WEB_CLIENT_ID = 'web'
+
+/**
+ * Кто сейчас подключается к устройству из веб-клиента. hbbs перед
+ * соединением спрашивает /api/v1/quota/check и передаёт токен входа — так
+ * мы узнаём аккаунт. Через секунды приходит аудит с ID «web», и сессию
+ * записываем этому аккаунту. Храним в памяти процесса пару минут.
+ */
+const PENDING_TTL_MS = 2 * 60 * 1000
+const pendingWebControllers = new Map<string, { userId: string; at: number }>()
+
+export function notePendingController(hostId: string, userId: string, now = Date.now()): void {
+  pendingWebControllers.set(hostId, { userId, at: now })
+  if (pendingWebControllers.size > 10_000) {
+    for (const [key, value] of pendingWebControllers) if (now - value.at > PENDING_TTL_MS) pendingWebControllers.delete(key)
+  }
+}
+
+function takePendingController(hostId: string, now = Date.now()): string | null {
+  const pending = pendingWebControllers.get(hostId)
+  if (!pending || now - pending.at > PENDING_TTL_MS) return null
+  pendingWebControllers.delete(hostId)
+  return pending.userId
+}
+
 export interface QuotaSubject {
   /** user:<id> для аккаунта, device:<rustdesk_id> для непривязанного устройства. */
   key: string
@@ -57,11 +83,16 @@ export async function resolveSubject(
   controllerId: string,
   hostId: string,
 ): Promise<QuotaSubject> {
-  if (controllerId) {
+  // Веб-клиент представляется как «web» — один ID на всех. Аккаунт берём из
+  // проверки квоты hbbs (токен входа), а если её не было — записываем
+  // владельцу управляемого устройства.
+  if (controllerId === WEB_CLIENT_ID) {
+    const userId = takePendingController(hostId)
+    if (userId) return userSubject(userId)
+  }
+  if (controllerId && controllerId !== WEB_CLIENT_ID) {
     const controller = await store.findDeviceByRustdeskId(controllerId)
     if (controller?.userId) return userSubject(controller.userId)
-    // Веб-клиент не привязывается как устройство, но если в нём вошли в
-    // аккаунт — вход записан с его ID, и платит этот аккаунт.
     const login = await store.findActiveClientTokenByDevice(controllerId, new Date().toISOString())
     if (login) return userSubject(login.userId)
     return deviceSubject(controllerId)

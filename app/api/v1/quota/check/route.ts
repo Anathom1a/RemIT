@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { isServiceRequest } from '@/lib/auth'
 import { userByClientToken } from '@/lib/client-api'
-import { checkQuota, closeStaleSessions, resolveSubject, userSubject } from '@/lib/quota'
+import { checkQuota, closeStaleSessions, notePendingController, resolveSubject, userSubject } from '@/lib/quota'
 import { getStore } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
@@ -39,6 +39,8 @@ export async function POST(request: Request) {
   const store = await getStore()
   const account = typeof payload.token === 'string' && payload.token ? await userByClientToken(payload.token) : null
   const subject = account ? userSubject(account.id) : await resolveSubject(store, controllerId, hostId)
+  // Веб-клиент подключится под ID «web»: запоминаем, чей это вход.
+  if (account && hostId) notePendingController(hostId, account.id)
   const decision = await checkQuota(subject)
 
   return NextResponse.json({

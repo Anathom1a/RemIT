@@ -1,16 +1,36 @@
 import { randomBytes } from 'node:crypto'
 import { config } from './config'
 import { openSecret, sealSecret } from './secret-box'
+import { isPaidPlan } from './plans'
 import { getStore } from './store'
 import type { AbPeer, User, WebShare } from './types'
 
 /**
  * Веб-клиент (бета): RustDesk для браузера из сборки lejianwen, раздаётся
  * сайтом из public/webclient. Соединяется с hbbs и hbbr по WebSocket через
- * nginx (порты 21118 и 21119 с TLS). Доступен на любом тарифе.
+ * nginx (порты 21118 и 21119 с TLS).
+ *
+ * Доступен на любом платном тарифе, на бесплатном — нет. Проверяем в трёх
+ * местах: страница /webclient, вход и адресная книга в самом веб-клиенте,
+ * гостевые ссылки (создаёт платный аккаунт, работают, пока тариф действует).
  */
 
-export const WEBCLIENT_PATH = '/webclient/'
+export const WEBCLIENT_PAID_ONLY = 'Веб-клиент доступен на любом платном тарифе. Оформите подписку в личном кабинете.'
+
+/** Запрос пришёл из веб-клиента: браузер со страницы /webclient. */
+export function isWebClientLogin(request: Request, payload: Record<string, any>): boolean {
+  const info = (payload.deviceInfo ?? {}) as Record<string, unknown>
+  const referer = request.headers.get('referer') ?? ''
+  return info.type === 'browser' || info.type === 'webclient' || /\/webclient/.test(referer)
+}
+
+/** Есть ли у аккаунта веб-клиент: действующая подписка на платный тариф. */
+export async function hasWebClient(userId: string): Promise<boolean> {
+  const store = await getStore()
+  const subscription = await store.getActiveSubscription(userId)
+  return Boolean(subscription) && isPaidPlan(subscription!.plan)
+}
+
 const PURPOSE = 'webshare'
 
 export class ShareError extends Error {
@@ -46,7 +66,19 @@ export const SHARE_TTL: Record<string, number | null> = {
 }
 
 export function shareUrl(token: string): string {
-  return `https://${config.brand.domain}${WEBCLIENT_PATH}#/?share_token=${token}`
+  // Токен в адресе, а не после «#»: так сайт видит его и пускает гостя на
+  // страницу веб-клиента без аккаунта и подписки.
+  return `https://${config.brand.domain}/webclient?share=${encodeURIComponent(token)}`
+}
+
+/** Живая ли гостевая ссылка — чтобы открыть по ней страницу, не тратя её. */
+export async function shareIsUsable(token: string): Promise<boolean> {
+  const store = await getStore()
+  const share = token ? await store.findWebShare(token) : null
+  if (!share) return false
+  if (share.expiresAt && share.expiresAt <= new Date().toISOString()) return false
+  const owner = await store.findUserById(share.userId)
+  return Boolean(owner && owner.status === 'active' && (await hasWebClient(owner.id)))
 }
 
 /**
@@ -65,6 +97,7 @@ export async function createShare(
   if (!(ttlKey in SHARE_TTL)) throw new ShareError('Неверный срок')
   const ttl = SHARE_TTL[ttlKey]
 
+  if (!(await hasWebClient(user.id))) throw new ShareError(WEBCLIENT_PAID_ONLY, 403)
   const store = await getStore()
   if ((await store.listWebSharesByUser(user.id)).length >= 100) throw new ShareError('Слишком много ссылок — удалите старые')
   const now = Date.now()
@@ -92,6 +125,7 @@ export async function redeemShare(token: string) {
   }
   const owner = await store.findUserById(share.userId)
   if (!owner || owner.status !== 'active') throw new ShareError('Ссылка не действует', 410)
+  if (!(await hasWebClient(owner.id))) throw new ShareError('Ссылка не действует: у владельца закончилась подписка', 410)
   const password = openSecret(share.passwordSecret, PURPOSE)
   if (password === null) throw new ShareError('Ссылка не действует', 410)
   if (share.passwordType === 'once') await store.deleteWebShare(share.token)

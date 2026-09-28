@@ -6,8 +6,6 @@ const nextConfig = {
   serverExternalPackages: ['pg'],
   async rewrites() {
     return [
-      // Веб-клиент (бета) лежит в public/webclient; корень открывает index.html.
-      { source: '/webclient', destination: '/webclient/index.html' },
       // Шрифты для веб-клиента идут через наш сервер, а не напрямую из
       // браузера в Google: так адрес посетителя не уходит третьей стороне.
       { source: '/webclient/gfonts/:path*', destination: 'https://fonts.gstatic.com/:path*' },
