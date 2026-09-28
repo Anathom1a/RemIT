@@ -94,8 +94,8 @@ export default async function DownloadPage() {
           <div className="relative mx-auto max-w-6xl px-5 py-16 text-center">
             <h1 className="text-4xl font-semibold sm:text-5xl">Скачать {config.brand.name}</h1>
             <p className="mx-auto mt-4 max-w-2xl text-text-secondary">
-              Один файл, никакой регистрации для подключения. Настройки серверов уже зашиты в сборку —
-              клиент сразу работает с нашей инфраструктурой.
+              Один файл, никакой регистрации для подключения и никаких настроек: серверы уже прописаны
+              внутри программы. Скачали, запустили — можно подключаться.
             </p>
             {release && (
               <p className="mt-4 text-sm text-text-muted">
@@ -144,25 +144,49 @@ export default async function DownloadPage() {
             </div>
           </details>
 
+          {/*
+            Ничего настраивать не нужно: адреса серверов и ключ зашиты в сборку,
+            а пункт «ID/Relay Server» в клиенте скрыт. Поэтому вместо таблицы с
+            адресами — три шага до первого подключения.
+          */}
           <div className="card mt-10 p-8">
-            <h2 className="text-xl font-semibold">Настройки для ручной конфигурации</h2>
+            <h2 className="text-xl font-semibold">Что дальше</h2>
             <p className="mt-2 text-sm text-text-secondary">
-              Нужны, если вы используете совместимый клиент или разворачиваете сборку самостоятельно:
-              откройте «Настройки → Сеть» и укажите адреса ниже.
+              Настраивать ничего не нужно — {config.brand.name} сразу подключается к нашим серверам.
             </p>
-            <dl className="mt-6 grid gap-4 sm:grid-cols-2">
+            <ol className="mt-6 space-y-4">
               {[
-                { term: 'ID-сервер', value: config.rustdesk.idServer },
-                { term: 'Сервер-ретранслятор', value: config.rustdesk.relayServer },
-                { term: 'API-сервер', value: config.rustdesk.apiServer },
-                { term: 'Открытый ключ', value: config.rustdesk.publicKey || 'выдаётся вместе со сборкой' },
-              ].map((item) => (
-                <div key={item.term} className="rounded-xl border border-white/8 bg-ink-850/60 p-4">
-                  <dt className="text-xs uppercase tracking-wider text-text-muted">{item.term}</dt>
-                  <dd className="mt-1.5 break-all font-mono text-sm text-text-primary">{item.value}</dd>
-                </div>
+                {
+                  title: 'Запустите программу на обоих компьютерах',
+                  text: 'Установка необязательна: файл можно просто открыть. Для постоянного доступа к компьютеру без пользователя за ним — установите клиент.',
+                },
+                {
+                  title: 'Продиктуйте ID и одноразовый пароль',
+                  text: 'Они видны в окне программы. Тот, кто подключается, вводит их у себя — и видит ваш экран.',
+                },
+                {
+                  title: 'Привяжите устройство в кабинете',
+                  text: 'Тогда на него действуют ваш тариф и подписка, а в кабинете видно, сколько времени вы израсходовали.',
+                },
+              ].map((step, index) => (
+                <li key={step.title} className="flex gap-4">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-brand-500/12 text-sm font-semibold text-brand-400">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="font-medium text-text-primary">{step.title}</p>
+                    <p className="mt-1 text-sm leading-relaxed text-text-secondary">{step.text}</p>
+                  </div>
+                </li>
               ))}
-            </dl>
+            </ol>
+            <p className="mt-6 text-sm text-text-muted">
+              Что-то не так?{' '}
+              <Link href="/kabinet/podderzhka" className="text-brand-400 underline decoration-dotted">
+                Обратитесь в поддержку
+              </Link>
+              .
+            </p>
           </div>
 
           {!release && (

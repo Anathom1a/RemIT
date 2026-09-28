@@ -30,9 +30,14 @@ export function AppPreview() {
             <span className="font-mono text-xl tracking-widest text-text-primary">k7f2xq</span>
             <span className="pill !py-0.5 !text-[11px]">обновить</span>
           </div>
-          <div className="mt-6 space-y-2 text-xs text-text-muted">
-            <p>Сервер: {config.rustdesk.idServer}</p>
-            <p>Ретранслятор: {config.rustdesk.relayServer}</p>
+          {/*
+            Адреса серверов пользователю не нужны и в клиенте их не видно: они
+            зашиты в сборку. Вместо них — то, что человеку действительно важно
+            знать перед тем, как продиктовать ID.
+          */}
+          <div className="mt-6 flex items-center gap-2 text-xs text-text-muted">
+            <span className="size-1.5 rounded-full bg-success" />
+            Готов к подключению · настройка не нужна
           </div>
         </div>
 
