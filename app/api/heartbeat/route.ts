@@ -3,6 +3,7 @@ import { purgeOldHistory } from '@/lib/history'
 import { processHeartbeat } from '@/lib/quota'
 import { getClientPolicy } from '@/lib/policy'
 import { clientIp } from '@/lib/rate-limit'
+import { reconcileRelays } from '@/lib/relays'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,8 @@ export async function POST(request: Request) {
 
   // Журнал старше срока хранения чистим попутно, не чаще раза в шесть часов.
   after(() => purgeOldHistory().catch((error) => console.error('[history] очистка журнала:', error)))
+  // Список ретрансляторов в hbbs сверяем не чаще раза в пять минут.
+  after(() => reconcileRelays().catch((error) => console.error('[relays] сверка:', error)))
 
   if (result.disconnect.length > 0) body.disconnect = result.disconnect
 

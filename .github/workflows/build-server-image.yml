@@ -18,7 +18,9 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/rustdesk-server-s6-remit
+  # Имя образа задаётся в первом шаге: GHCR принимает только строчные буквы,
+  # а владелец репозитория пишется с заглавной.
+  IMAGE_REPO: rustdesk-server-s6-remit
 
 jobs:
   build-amd64:
@@ -26,6 +28,11 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Имя образа
+        run: |
+          owner="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
+          echo "IMAGE_NAME=ghcr.io/${owner}/${IMAGE_REPO}" >> "$GITHUB_ENV"
+
       - name: Получить этот репозиторий
         uses: actions/checkout@v4
         with:
@@ -104,7 +111,7 @@ jobs:
         run: |
           {
             echo "## Образ сервера RemIT"
-            echo '`${{ env.IMAGE_NAME }}:latest`'
+            echo "\`${IMAGE_NAME}:latest\`"
             echo "Включает проверку суточного лимита перед выдачей соединения."
             echo "Держите пакет приватным: серверу достаточно права read:packages."
           } >> "$GITHUB_STEP_SUMMARY"

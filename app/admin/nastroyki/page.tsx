@@ -17,7 +17,7 @@ export default async function AdminSettingsPage() {
   const env = [
     { term: 'Домен', value: config.brand.domain },
     { term: 'ID-сервер', value: config.rustdesk.idServer },
-    { term: 'Сервер-ретранслятор', value: config.rustdesk.relayServer },
+    { term: 'Ретранслятор основного сервера', value: config.rustdesk.relayServer },
     { term: 'API-сервер для клиентов', value: config.rustdesk.apiServer },
     { term: 'Подпись токенов клиента (JWT_KEY)', value: config.client.jwtKey ? 'задана' : 'не задана' },
     { term: 'Вход через VK ID', value: config.vk.clientId ? `включён, приложение ${config.vk.clientId}` : 'выключен (REMIT_VK_CLIENT_ID)' },

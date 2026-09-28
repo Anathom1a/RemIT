@@ -1,0 +1,53 @@
+# Отдельный ретранслятор RemIT: только hbbr и nginx с TLS для веб-клиента.
+# Ставится скриптом server/deploy-relay.sh; адрес узла и токен команд выдаёт
+# админка сайта («Ретрансляторы» → «Добавить»).
+#
+#   docker compose --env-file .env up -d
+#
+# hbbs, база и сайт здесь не нужны: соединения на этот узел направляет hbbs
+# основного сервера.
+
+services:
+  hbbr:
+    # Свой образ (build-server-image.yml или server/build-image.sh): в нём
+    # hbbr принимает команды из админки по токену. Со стоковым образом узел
+    # работает, но без нагрузки и команд в админке.
+    image: ${RUSTDESK_IMAGE:-ghcr.io/anathom1a/rustdesk-server-s6-remit:latest}
+    container_name: remit-relay-hbbr
+    # Только hbbr, без s6 и hbbs. -k — открытый ключ основного сервера:
+    # ретранслятор пускает лишь клиентов RemIT. Закрытый ключ сюда не нужен.
+    entrypoint: ['/usr/bin/hbbr']
+    command: ['-p', '${RELAY_PORT:-21117}', '-k', '${REMIT_PUBLIC_KEY:?задайте REMIT_PUBLIC_KEY}']
+    ports:
+      - '${RELAY_PORT:-21117}:${RELAY_PORT:-21117}'
+    # WebSocket (порт ретранслятора + 2) наружу отдаёт nginx с TLS.
+    expose:
+      - '${RELAY_WS_PORT:-21119}'
+    environment:
+      - TZ=Europe/Moscow
+      # Токен команд из админки — у каждого узла свой.
+      - REMIT_SERVICE_TOKEN=${REMIT_RELAY_TOKEN:?задайте REMIT_RELAY_TOKEN}
+      # Ограничения скорости, Мбит/с (пусто — по умолчанию hbbr).
+      - TOTAL_BANDWIDTH=${TOTAL_BANDWIDTH:-}
+      - SINGLE_BANDWIDTH=${SINGLE_BANDWIDTH:-}
+      - LIMIT_SPEED=${LIMIT_SPEED:-}
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: remit-relay-nginx
+    depends_on:
+      - hbbr
+    ports:
+      - '80:80'
+      - '443:443'
+      - '${RELAY_WS_PORT:-21119}:${RELAY_WS_PORT:-21119}'
+    environment:
+      - RELAY_DOMAIN=${RELAY_DOMAIN:?задайте RELAY_DOMAIN}
+      - RELAY_WS_PORT=${RELAY_WS_PORT:-21119}
+    volumes:
+      # Шаблон превращается в default.conf при старте (envsubst в образе nginx).
+      - ./nginx/relay.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./data/certbot/conf:/etc/letsencrypt:ro
+      - ./data/certbot/www:/var/www/certbot:ro
+    restart: unless-stopped

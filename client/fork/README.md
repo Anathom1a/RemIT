@@ -50,7 +50,7 @@ bash client/sync-fork.sh --fork ~/rustdesk-fork --tag 1.4.9 --push
    | `REMIT_SITE` | `https://remit.su` | нет |
    | `REMIT_APP_NAME` | `RemIT` | нет |
    | `REMIT_ID_SERVER` | `remit.su` | нет |
-   | `REMIT_RELAY_SERVER` | `remit.su` | нет |
+   | `REMIT_RELAY_SERVER` | пусто — ретранслятор выбирает сервер | нет |
 
    Ключ сервера не секрет: он и так лежит в каждом клиенте, поэтому его можно
    держать в Variables. Если хочется — положите в Secrets под тем же именем,

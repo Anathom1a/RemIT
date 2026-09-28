@@ -18,7 +18,7 @@ export interface ServerCommand {
 export const SERVER_COMMANDS: Record<ServerTarget, ServerCommand[]> = {
   hbbs: [
     { cmd: 'h', alias: '', args: '', explain: 'список команд' },
-    { cmd: 'relay-servers', alias: 'rs', args: '<адреса через запятую>', explain: 'показать или задать серверы-ретрансляторы' },
+    { cmd: 'relay-servers', alias: 'rs', args: '<адреса через запятую>', explain: 'какие ретрансляторы раздаёт hbbs (список задаётся на странице «Ретрансляторы»)' },
     { cmd: 'ip-blocker', alias: 'ib', args: '[<ip>|<число>] [-]', explain: 'заблокированные адреса: показать, снять блокировку (-)' },
     { cmd: 'ip-changes', alias: 'ic', args: '[<id>|<число>] [-]', explain: 'смены адреса у устройств' },
     { cmd: 'always-use-relay', alias: 'aur', args: '[y|n]', explain: 'всегда соединять через ретранслятор' },
@@ -44,17 +44,33 @@ export const SERVER_COMMANDS: Record<ServerTarget, ServerCommand[]> = {
 
 export class ServerCmdError extends Error {}
 
-/** Отправляет команду и возвращает ответ сервера. */
+/** Отправляет команду основному hbbs или hbbr и возвращает ответ сервера. */
 export async function sendServerCommand(target: ServerTarget, line: string): Promise<string> {
-  const text = line.trim().replace(/\s+/g, ' ')
+  const address = target === 'hbbs' ? config.rustdesk.hbbsCommand : config.rustdesk.hbbrCommand
+  return sendCommandTo({ address, token: config.serviceToken, target, line, label: target })
+}
+
+/**
+ * Команда любому узлу: основному серверу или отдельному ретранслятору
+ * (у ретранслятора свой токен — см. lib/relays.ts).
+ */
+export async function sendCommandTo(options: {
+  address: string
+  token: string
+  target: ServerTarget
+  line: string
+  label: string
+}): Promise<string> {
+  const { address, token, target, label } = options
+  const text = options.line.trim().replace(/\s+/g, ' ')
   const [name] = text.split(' ')
   const known = SERVER_COMMANDS[target].some((command) => command.cmd === name || command.alias === name)
   if (!known) throw new ServerCmdError('Неизвестная команда. Выберите из списка.')
-  if (!config.serviceToken) throw new ServerCmdError('Не задан REMIT_SERVICE_TOKEN')
+  if (!token) throw new ServerCmdError('Не задан токен команд')
 
-  const address = target === 'hbbs' ? config.rustdesk.hbbsCommand : config.rustdesk.hbbrCommand
-  const [host, portText] = address.split(':')
-  const port = Number(portText)
+  const separator = address.lastIndexOf(':')
+  const host = separator > 0 ? address.slice(0, separator) : address
+  const port = separator > 0 ? Number(address.slice(separator + 1)) : 21117
   const { Socket } = await import('node:net')
 
   return new Promise((resolve, reject) => {
@@ -73,9 +89,9 @@ export async function sendServerCommand(target: ServerTarget, line: string): Pro
     socket.once('end', () => finish())
     socket.once('close', () => finish())
     socket.once('timeout', () =>
-      chunks.length ? finish() : finish(new ServerCmdError(`${target} не ответил. Нужен свой образ сервера с патчем команд.`)),
+      chunks.length ? finish() : finish(new ServerCmdError(`${label} не ответил. Нужен свой образ сервера с патчем команд.`)),
     )
-    socket.once('error', (error) => finish(new ServerCmdError(`${target} недоступен: ${error.message}`)))
-    socket.connect(port, host, () => socket.write(`REMIT-CMD ${config.serviceToken}\n${text}`))
+    socket.once('error', (error) => finish(new ServerCmdError(`${label} недоступен: ${error.message}`)))
+    socket.connect(port, host, () => socket.write(`REMIT-CMD ${token}\n${text}`))
   })
 }

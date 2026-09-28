@@ -3,9 +3,22 @@
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 
-/** Форма служебной команды hbbs/hbbr с выводом ответа сервера. */
-export function ServerCommandForm({ target, presets }: { target: 'hbbs' | 'hbbr'; presets: string[] }) {
-  const [command, setCommand] = useState('h')
+/**
+ * Форма служебной команды hbbs/hbbr с выводом ответа сервера. С relayId —
+ * команда hbbr на отдельном ретрансляторе.
+ */
+export function ServerCommandForm({
+  target,
+  presets,
+  relayId,
+  initial = 'h',
+}: {
+  target: 'hbbs' | 'hbbr'
+  presets: string[]
+  relayId?: string
+  initial?: string
+}) {
+  const [command, setCommand] = useState(initial)
   const [output, setOutput] = useState('')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
@@ -15,10 +28,10 @@ export function ServerCommandForm({ target, presets }: { target: 'hbbs' | 'hbbr'
     setPending(true)
     setError('')
     try {
-      const response = await fetch('/api/v1/admin/server-cmd', {
+      const response = await fetch(relayId ? '/api/v1/admin/relays' : '/api/v1/admin/server-cmd', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ target, command }),
+        body: JSON.stringify(relayId ? { action: 'command', id: relayId, command } : { target, command }),
       })
       const data = (await response.json().catch(() => ({}))) as { output?: string; error?: string }
       if (!response.ok) setError(data.error ?? 'Команда не выполнена')
@@ -36,12 +49,12 @@ export function ServerCommandForm({ target, presets }: { target: 'hbbs' | 'hbbr'
         <input
           value={command}
           onChange={(event) => setCommand(event.target.value)}
-          list={`${target}-commands`}
+          list={`${relayId ?? target}-commands`}
           className="h-10 min-w-0 flex-1 rounded-xl border border-white/10 bg-ink-850/70 px-3 font-mono text-sm
             text-text-primary focus:border-brand-500 focus:outline-none"
           aria-label="Команда"
         />
-        <datalist id={`${target}-commands`}>
+        <datalist id={`${relayId ?? target}-commands`}>
           {presets.map((preset) => (
             <option key={preset} value={preset} />
           ))}

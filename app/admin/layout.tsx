@@ -18,6 +18,7 @@ const NAV = [
   { href: '/admin/komandy', label: 'Команды' },
   { href: '/admin/obnovleniya', label: 'Обновления' },
   { href: '/admin/server', label: 'Сервер' },
+  { href: '/admin/retranslyatory', label: 'Ретрансляторы' },
   { href: '/admin/nastroyki', label: 'Настройки' },
 ]
 
