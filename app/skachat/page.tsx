@@ -48,7 +48,17 @@ function PlatformCard({ platform, primary }: { platform: PlatformDownloads; prim
         </div>
       </div>
 
-      <ul className="mt-5 space-y-2">
+      {platform.options.length === 0 && (
+        <p className="mt-5 rounded-xl border border-white/8 bg-ink-850/50 p-4 text-sm text-text-secondary">
+          Сборка для этой системы скоро появится здесь.{' '}
+          <Link href="/kabinet/podderzhka" className="text-brand-400 underline decoration-dotted">
+            Нужна прямо сейчас — напишите нам
+          </Link>
+          .
+        </p>
+      )}
+
+      <ul className="mt-5 space-y-2 empty:hidden">
         {platform.options.map((option, index) => (
           <li
             key={option.url}
@@ -189,16 +199,6 @@ export default async function DownloadPage() {
             </p>
           </div>
 
-          {!release && (
-            <div className="mt-10 rounded-2xl border border-warning/25 bg-warning/5 p-6">
-              <h2 className="font-semibold text-warning">Перед публикацией сборок</h2>
-              <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-                Загрузите сборки в админке (раздел «Обновления») — они лягут на этот сервер, и ссылки на
-                этой странице заработают автоматически. Порядок сборки фирменного клиента описан в{' '}
-                <code className="font-mono">client/README.md</code> репозитория.
-              </p>
-            </div>
-          )}
         </section>
       </main>
       <SiteFooter />

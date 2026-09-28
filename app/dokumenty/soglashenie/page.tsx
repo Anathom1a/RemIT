@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { LegalPage, type LegalSection } from '@/components/site/legal-page'
 import { pageMetadata } from '@/lib/seo'
 import { config } from '@/lib/config'
+import { legalDetails } from '@/lib/legal'
 
 export const metadata: Metadata = pageMetadata({
   title: 'Пользовательское соглашение',
@@ -123,7 +124,9 @@ const SECTIONS: LegalSection[] = [
   {
     title: 'Реквизиты и контакты',
     paragraphs: [
-      '[Наименование исполнителя, ИНН, ОГРН, юридический адрес]',
+      ...legalDetails()
+        .filter((row) => row.label !== 'Почта')
+        .map((row) => `${row.label}: ${row.value}`),
       `Поддержка: ${config.brand.supportEmail}, ${config.brand.supportUrl}. Вопросы по договорам и счетам: ${config.brand.salesEmail}.`,
     ],
   },
@@ -136,7 +139,6 @@ export default function UserAgreementPage() {
       path="/dokumenty/soglashenie"
       updatedAt="19 сентября 2026 года"
       intro={`Документ описывает условия использования сервиса ${config.brand.name}: что можно и чего нельзя делать, как работают лимиты и пробный период, кто за что отвечает.`}
-      notice="Текст подготовлен для сервиса и требует проверки юристом до начала продаж: нужно заполнить реквизиты исполнителя и согласовать формулировки с публичной офертой."
       sections={SECTIONS}
     />
   )

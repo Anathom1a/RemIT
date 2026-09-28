@@ -3,6 +3,7 @@ import { SiteHeader } from '@/components/site/header'
 import { SiteFooter } from '@/components/site/footer'
 import { PLANS, formatPrice } from '@/lib/plans'
 import { config } from '@/lib/config'
+import { legalDetails, legalEntity } from '@/lib/legal'
 import { pageMetadata } from '@/lib/seo'
 
 export const metadata: Metadata = pageMetadata({
@@ -20,17 +21,13 @@ export default function OfferPage() {
       <SiteHeader />
       <main className="mx-auto max-w-4xl px-5 py-16">
         <h1 className="text-4xl font-semibold">Публичная оферта</h1>
-        <div className="mt-4 rounded-2xl border border-warning/25 bg-warning/5 p-5 text-sm leading-relaxed text-text-secondary">
-          Шаблон. Перед приёмом платежей заполните реквизиты исполнителя и согласуйте текст с юристом:
-          платёжные провайдеры проверяют оферту, политику обработки данных и порядок возврата.
-        </div>
 
         <div className="mt-10 space-y-8 leading-relaxed text-text-secondary">
           <section>
             <h2 className="text-xl font-semibold text-text-primary">1. Термины</h2>
             <p className="mt-3">
               Сервис — программный комплекс {config.brand.name}, доступный на сайте {config.brand.domain} и
-              в клиентских приложениях. Исполнитель — [наименование, ИНН, ОГРН, адрес]. Пользователь — лицо,
+              в клиентских приложениях. Исполнитель — {legalEntity()}. Пользователь — лицо,
               принявшее условия настоящей оферты.
             </p>
           </section>
@@ -98,7 +95,14 @@ export default function OfferPage() {
 
           <section>
             <h2 className="text-xl font-semibold text-text-primary">8. Реквизиты</h2>
-            <p className="mt-3">[Наименование, ИНН, ОГРН, банковские реквизиты, адрес, телефон]</p>
+            <dl className="mt-3 space-y-1">
+              {legalDetails().map((row) => (
+                <div key={row.label} className="flex flex-wrap gap-x-2">
+                  <dt className="text-text-muted">{row.label}:</dt>
+                  <dd>{row.value}</dd>
+                </div>
+              ))}
+            </dl>
           </section>
         </div>
       </main>

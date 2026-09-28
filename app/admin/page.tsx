@@ -5,6 +5,8 @@ import { getRuntimeSettings } from '@/lib/settings'
 import { formatPrice } from '@/lib/plans'
 import { humanDuration } from '@/lib/time'
 import { config } from '@/lib/config'
+import { missingLegalFields } from '@/lib/legal'
+import { getLatestRelease } from '@/lib/updates'
 
 export const metadata: Metadata = { title: 'Админка' }
 export const dynamic = 'force-dynamic'
@@ -12,6 +14,55 @@ export const dynamic = 'force-dynamic'
 export default async function AdminOverviewPage() {
   const settings = await getRuntimeSettings()
   const [overview, api] = await Promise.all([getAdminOverview(settings.freeSecondsPerDay), checkRustdeskApi()])
+
+  // Чек-лист перед запуском. Раньше эти напоминания висели на публичных
+  // страницах и были видны посетителям; им место здесь.
+  const release = await getLatestRelease({ channel: 'stable' })
+  const missingLegal = missingLegalFields()
+  const billingReady =
+    config.billing.provider !== 'yookassa' ||
+    Boolean(config.billing.yookassa.shopId && config.billing.yookassa.secretKey)
+  const launchChecks = [
+    {
+      ok: missingLegal.length === 0,
+      title: 'Реквизиты в оферте и политике данных',
+      detail:
+        missingLegal.length === 0
+          ? 'Заполнены.'
+          : `Не заполнено: ${missingLegal.join(', ')}. Переменные REMIT_LEGAL_* в server/.env. Пока их нет, в документах владелец назван через сервис.`,
+    },
+    {
+      ok: config.legalReviewed,
+      manual: true,
+      title: 'Проверка документов юристом',
+      detail:
+        'Оферта, соглашение, политика и согласие на обработку данных (152-ФЗ): платёжные сервисы проверяют их вместе. После проверки поставьте REMIT_LEGAL_REVIEWED=true — пункт исчезнет.',
+    },
+    {
+      ok: Boolean(release),
+      title: 'Опубликован выпуск клиента',
+      detail: release
+        ? `Версия ${release.version}. Страница загрузки раздаёт его файлы.`
+        : 'Выпуска нет — на странице загрузки вместо кнопок написано «скоро появится». Загрузите сборки в разделе «Обновления».',
+      href: '/admin/obnovleniya',
+    },
+    {
+      ok: billingReady,
+      title: 'Приём оплаты',
+      detail: billingReady
+        ? 'Настроен.'
+        : 'ЮKassa выбрана, но YOOKASSA_SHOP_ID и YOOKASSA_SECRET_KEY не заданы: покупатель увидит «оплата временно недоступна».',
+    },
+    {
+      ok: Boolean(config.notifications.telegramBotToken && config.notifications.telegramChatId),
+      title: 'Бот поддержки',
+      detail:
+        config.notifications.telegramBotToken && config.notifications.telegramChatId
+          ? 'Уведомления о заявках и обращениях приходят.'
+          : 'Не задан — обращения копятся в разделе «Обращения» без уведомлений. Переменные REMIT_TELEGRAM_BOT_TOKEN и REMIT_TELEGRAM_CHAT_ID.',
+    },
+  ]
+  const openChecks = launchChecks.filter((check) => !check.ok)
 
   const metrics = [
     { label: 'Пользователей', value: overview.users.toString(), hint: 'всего аккаунтов' },
@@ -32,6 +83,36 @@ export default async function AdminOverviewPage() {
           Состояние сервиса на {new Date().toLocaleString('ru-RU', { timeZone: config.quota.timeZone })}
         </p>
       </div>
+
+      {openChecks.length > 0 && (
+        <div className="card border-warning/30 p-6">
+          <h2 className="font-semibold">Перед запуском</h2>
+          <p className="mt-1 text-sm text-text-muted">
+            Видно только администраторам. Пункт исчезнет, когда будет выполнен.
+          </p>
+          <ul className="mt-4 space-y-3">
+            {openChecks.map((check) => (
+              <li key={check.title} className="flex gap-3">
+                <span
+                  className={`mt-1.5 size-2 shrink-0 rounded-full ${check.manual ? 'bg-text-muted' : 'bg-warning'}`}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-text-primary">
+                    {check.href ? (
+                      <Link href={check.href} className="underline decoration-dotted">
+                        {check.title}
+                      </Link>
+                    ) : (
+                      check.title
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-sm text-text-secondary">{check.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (

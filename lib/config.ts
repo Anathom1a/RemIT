@@ -39,6 +39,32 @@ export const config = {
     city: env('REMIT_CITY', 'Москва'),
   },
 
+  /**
+   * Реквизиты владельца сервиса для оферты, соглашения и политики обработки
+   * данных. Пустое поле на сайте просто не выводится; что не заполнено,
+   * видно в админке на главной странице.
+   */
+  legal: {
+    /** Полное наименование: «ООО „Ремит“» или «ИП Иванов Иван Иванович». */
+    name: env('REMIT_LEGAL_NAME'),
+    inn: env('REMIT_LEGAL_INN'),
+    /** ОГРН для организации или ОГРНИП для предпринимателя. */
+    ogrn: env('REMIT_LEGAL_OGRN'),
+    address: env('REMIT_LEGAL_ADDRESS'),
+    /** Банковские реквизиты одной строкой: банк, БИК, р/с, к/с. */
+    bank: env('REMIT_LEGAL_BANK'),
+    phone: env('REMIT_LEGAL_PHONE'),
+  },
+
+  /**
+   * Документы проверены юристом. Ставится вручную (REMIT_LEGAL_REVIEWED=true),
+   * чтобы убрать напоминание с главной страницы админки.
+   */
+  legalReviewed: env('REMIT_LEGAL_REVIEWED') === 'true',
+
+  /** Публичные исходники нашей сборки клиента — требование AGPL-3.0. */
+  clientSourceUrl: env('REMIT_CLIENT_SOURCE_URL', 'https://github.com/Anathom1a/rustdesk/tree/remit'),
+
   /** Адреса инфраструктуры RustDesk, которые показываем в клиенте и кабинете. */
   rustdesk: {
     idServer: env('REMIT_ID_SERVER', 'remit.su:21116'),

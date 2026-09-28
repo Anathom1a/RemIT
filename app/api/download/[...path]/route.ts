@@ -29,10 +29,12 @@ async function handle(request: Request, segments: string[], method: 'GET' | 'HEA
     return NextResponse.redirect(`${base.replace(/\/$/, '')}/${clean.join('/')}`, 302)
   }
 
+  // Сюда попадает человек по устаревшей ссылке — отправляем его за актуальной
+  // версией, а не рассказываем, как устроена раздача.
   return NextResponse.json(
     {
       error: 'Файл не найден',
-      hint: `Загрузите сборку в админке (раздел «Обновления») — она будет раздаваться отсюда. Поддержка: ${config.brand.supportUrl}`,
+      hint: `Актуальная версия — на странице https://${config.brand.domain}/skachat`,
     },
     { status: 404 },
   )

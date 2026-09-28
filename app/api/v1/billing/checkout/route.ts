@@ -31,7 +31,12 @@ export async function POST(request: Request) {
     const { payment, redirectUrl } = await createCheckout(user, plan, months)
     return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Не удалось создать платёж'
-    return NextResponse.json({ error: message }, { status: 502 })
+    // Подробности — в журнал сервера: пользователю незачем видеть, какие
+    // ключи платёжного сервиса не заполнены.
+    console.error('[billing] не удалось создать платёж:', error)
+    return NextResponse.json(
+      { error: 'Оплата временно недоступна. Попробуйте позже или напишите в поддержку.' },
+      { status: 502 },
+    )
   }
 }

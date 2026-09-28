@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { LegalPage, type LegalSection } from '@/components/site/legal-page'
 import { pageMetadata } from '@/lib/seo'
 import { config } from '@/lib/config'
+import { legalEntity } from '@/lib/legal'
 
 export const metadata: Metadata = pageMetadata({
   title: 'Согласие на обработку персональных данных',
@@ -14,7 +15,7 @@ const SECTIONS: LegalSection[] = [
   {
     title: 'Кому даётся согласие',
     paragraphs: [
-      `Согласие даётся оператору персональных данных — [наименование, ИНН, ОГРН, адрес], далее «оператор», который обеспечивает работу сервиса ${config.brand.name} на сайте ${config.brand.domain}.`,
+      `Согласие даётся оператору персональных данных — ${legalEntity()}, далее «оператор», который обеспечивает работу сервиса ${config.brand.name} на сайте ${config.brand.domain}.`,
       'Согласие даётся свободно, своей волей и в своём интересе при регистрации, оформлении подписки, отправке заявки на пробный период или обращении в поддержку.',
     ],
   },
@@ -96,7 +97,6 @@ export default function ConsentPage() {
       path="/dokumenty/soglasie"
       updatedAt="19 сентября 2026 года"
       intro="Отправляя формы на сайте — регистрацию, заявку на пробный период или обращение в поддержку — пользователь подтверждает согласие на обработку персональных данных на условиях, изложенных ниже."
-      notice="Перед приёмом заявок заполните реквизиты оператора персональных данных и проверьте текст с юристом: платёжные сервисы и надзорные органы проверяют этот документ вместе с политикой конфиденциальности."
       sections={SECTIONS}
     />
   )

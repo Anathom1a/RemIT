@@ -33,38 +33,30 @@ export const PLATFORMS: {
   title: string
   note: string
   icon: string
-  fallback: { label: string; fileName: string }[]
 }[] = [
   {
     os: 'windows',
     title: 'Windows 10/11',
     note: 'Портативная версия и установщик MSI, x64',
     icon: 'M3 5.5 10 4.6v6.4H3zM11.5 4.4 21 3v8h-9.5zM3 12.9h7v6.4L3 18.4zM11.5 12.9H21V21l-9.5-1.4z',
-    fallback: [
-      { label: 'Портативная версия (.exe)', fileName: 'RemIT-Setup-x64.exe' },
-      { label: 'Установщик MSI', fileName: 'RemIT-x64.msi' },
-    ],
   },
   {
     os: 'macos',
     title: 'macOS 12+',
     note: 'Отдельные сборки для Apple Silicon и Intel',
     icon: 'M12 7c1-2 3-3 4-3 .2 2-1 4-2 5M7 20c-2-3-3-8 0-10 1.5-1 3 0 4 0s2.5-1 4 0c3 2 2 7 0 10-1 1.5-2 1-3 1s-2 .5-3-1Z',
-    fallback: [{ label: 'Образ диска (.dmg)', fileName: 'RemIT.dmg' }],
   },
   {
     os: 'linux',
     title: 'Linux',
     note: 'deb, rpm и AppImage, x86_64',
     icon: 'M12 3c3 0 4 3 4 6 0 3 3 5 3 8s-3 4-7 4-7-1-7-4 3-5 3-8c0-3 1-6 4-6Z',
-    fallback: [{ label: 'Пакет .deb', fileName: 'remit_amd64.deb' }],
   },
   {
     os: 'android',
     title: 'Android',
     note: 'Управление с телефона и планшета',
     icon: 'M7 3h10v18H7zM11 18h2',
-    fallback: [{ label: 'Пакет .apk', fileName: 'RemIT.apk' }],
   },
 ]
 
@@ -107,9 +99,9 @@ export function formatSize(bytes: number): string {
 }
 
 /**
- * Собирает список вариантов загрузки для каждой платформы. Пока выпуск не
- * опубликован, показываем ожидаемые имена файлов: ссылка ведёт на маршрут
- * загрузок и честно отвечает, что файла ещё нет.
+ * Собирает список вариантов загрузки для каждой платформы. Если под систему
+ * сборки ещё нет, список пуст — страница покажет, что она скоро появится,
+ * а не ссылку, которая ведёт на ошибку.
  */
 export function buildPlatforms(release: Release | null): PlatformDownloads[] {
   return PLATFORMS.map((platform) => {
@@ -131,15 +123,7 @@ export function buildPlatforms(release: Release | null): PlatformDownloads[] {
       title: platform.title,
       note: platform.note,
       icon: platform.icon,
-      options:
-        options.length > 0
-          ? options
-          : platform.fallback.map((item) => ({
-              label: item.label,
-              fileName: item.fileName,
-              url: `/api/download/${item.fileName}`,
-              size: 0,
-            })),
+      options,
     }
   })
 }

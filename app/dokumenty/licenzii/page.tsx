@@ -64,13 +64,22 @@ export default function LicensesPage() {
           ))}
         </div>
 
-        <div className="mt-10 rounded-2xl border border-warning/25 bg-warning/5 p-6">
-          <h2 className="font-semibold text-warning">Что нужно заполнить перед запуском</h2>
-          <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-relaxed text-text-secondary">
-            <li>Ссылку на публичный репозиторий с исходным кодом вашей сборки клиента и сервера.</li>
-            <li>Текст лицензии AGPL-3.0 в составе дистрибутива клиента.</li>
-            <li>Отметку об изменениях: что именно изменено относительно исходного проекта.</li>
-          </ul>
+        <div className="card mt-10 border-brand-500/30 p-6">
+          <h2 className="text-lg font-semibold">Исходный код клиента {config.brand.name}</h2>
+          <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+            Наша сборка — это RustDesk с изменениями: серверы и ключ прописаны внутри программы, свои
+            оформление и значок, проверка обновлений на нашем сервере и учёт бесплатного времени. Все
+            изменения открыты, текст лицензии AGPL-3.0 входит в установщик и показывается в окне
+            «О программе».
+          </p>
+          <a
+            href={config.clientSourceUrl}
+            className="mt-3 inline-block text-sm text-brand-400 underline decoration-dotted"
+            rel="noreferrer"
+            target="_blank"
+          >
+            {config.clientSourceUrl}
+          </a>
         </div>
       </main>
       <SiteFooter />
