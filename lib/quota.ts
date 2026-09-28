@@ -11,9 +11,8 @@ import { newId } from './auth'
  *
  * Время считается по heartbeat-ам, которые управляемый клиент шлёт на
  * /api/heartbeat каждые 15 секунд со списком активных подключений (`conns`).
- * Шлюз (app/api/heartbeat) проксирует их в панель rustdesk-api и попутно
- * начисляет секунды. Когда лимит исчерпан, в ответ клиенту добавляется поле
- * `disconnect` со списком conn_id — клиент сам разрывает эти сессии.
+ * Когда лимит исчерпан, в ответ клиенту добавляется поле `disconnect` со
+ * списком conn_id — клиент сам разрывает эти сессии.
  * Новые подключения дополнительно отклоняет hbbs через /api/v1/quota/check.
  */
 
@@ -158,7 +157,9 @@ function sessionKey(hostId: string, connId: number): string {
 export async function touchDevice(
   store: Store,
   rustdeskId: string,
-  patch: Partial<Pick<Device, 'uuid' | 'name' | 'os' | 'version'>> = {},
+  patch: Partial<
+    Pick<Device, 'uuid' | 'name' | 'os' | 'version' | 'osUsername' | 'cpu' | 'memory' | 'lastIp' | 'sysinfoAt'>
+  > = {},
   now = new Date(),
 ): Promise<Device | null> {
   if (!rustdeskId) return null
@@ -171,6 +172,11 @@ export async function touchDevice(
     name: patch.name ?? existing?.name ?? '',
     os: patch.os ?? existing?.os ?? '',
     version: patch.version ?? existing?.version ?? '',
+    osUsername: patch.osUsername ?? existing?.osUsername ?? '',
+    cpu: patch.cpu ?? existing?.cpu ?? '',
+    memory: patch.memory ?? existing?.memory ?? '',
+    lastIp: patch.lastIp ?? existing?.lastIp ?? '',
+    sysinfoAt: patch.sysinfoAt ?? existing?.sysinfoAt ?? null,
     lastSeenAt: now.toISOString(),
     createdAt: existing?.createdAt ?? now.toISOString(),
   }
@@ -182,10 +188,17 @@ export async function touchDevice(
  * Начало сессии из аудита клиента (`action: new`): здесь становится известна
  * управляющая сторона, поэтому расход времени привязывается именно к ней.
  */
+export interface SessionDetails {
+  controllerName?: string
+  ip?: string
+  connType?: number | null
+}
+
 export async function openSession(params: {
   hostId: string
   connId: number
   controllerId: string
+  details?: SessionDetails
   now?: Date
 }): Promise<ConnSession> {
   const store = await getStore()
@@ -206,6 +219,48 @@ export async function openSession(params: {
     endedAt: null,
     seconds: existing && !existing.endedAt ? existing.seconds : 0,
     closeReason: null,
+    controllerName: params.details?.controllerName ?? existing?.controllerName ?? '',
+    ip: params.details?.ip ?? existing?.ip ?? '',
+    connType: params.details?.connType ?? existing?.connType ?? null,
+  }
+  await store.saveConnSession(session)
+  return session
+}
+
+/**
+ * Уточнение сессии из аудита клиента. Клиент RustDesk сообщает о подключении
+ * в два приёма: сначала `action: new` с адресом, а после входа — запись с
+ * `peer: [id, имя]` и видом подключения. Только тогда становится известна
+ * управляющая сторона, и расход переписывается на неё.
+ */
+export async function describeSession(params: {
+  hostId: string
+  connId: number
+  controllerId?: string
+  details?: SessionDetails
+  now?: Date
+}): Promise<ConnSession> {
+  const store = await getStore()
+  const existing = await store.getConnSession(sessionKey(params.hostId, params.connId))
+  if (!existing || existing.endedAt) {
+    return openSession({
+      hostId: params.hostId,
+      connId: params.connId,
+      controllerId: params.controllerId ?? '',
+      details: params.details,
+      now: params.now,
+    })
+  }
+
+  let session: ConnSession = {
+    ...existing,
+    controllerName: params.details?.controllerName ?? existing.controllerName,
+    ip: params.details?.ip ?? existing.ip,
+    connType: params.details?.connType ?? existing.connType,
+  }
+  if (params.controllerId && params.controllerId !== existing.controllerId) {
+    const subject = await resolveSubject(store, params.controllerId, params.hostId)
+    session = { ...session, controllerId: params.controllerId, subjectKey: subject.key, userId: subject.userId }
   }
   await store.saveConnSession(session)
   return session
@@ -222,6 +277,7 @@ export interface HeartbeatResult {
   /** conn_id, которые клиент должен разорвать: исчерпано время или превышено число сессий. */
   disconnect: number[]
   states: QuotaState[]
+  device: Device | null
 }
 
 /**
@@ -232,6 +288,8 @@ export async function processHeartbeat(params: {
   hostId: string
   uuid?: string
   version?: string
+  /** Адрес, с которого устройство вышло на связь. */
+  ip?: string
   conns: number[]
   now?: Date
 }): Promise<HeartbeatResult> {
@@ -241,7 +299,16 @@ export async function processHeartbeat(params: {
   const disconnect: number[] = []
   const states = new Map<string, QuotaState>()
 
-  await touchDevice(store, params.hostId, { uuid: params.uuid, version: params.version }, now)
+  const device = await touchDevice(
+    store,
+    params.hostId,
+    {
+      uuid: params.uuid,
+      version: params.version,
+      ...(params.ip && params.ip !== 'unknown' ? { lastIp: params.ip } : {}),
+    },
+    now,
+  )
 
   const active = await store.listActiveConnSessions({ hostId: params.hostId })
   const alive = new Set(params.conns)
@@ -289,7 +356,7 @@ export async function processHeartbeat(params: {
 
   await enforceConcurrentLimit(store, params.hostId, states, disconnect, now)
 
-  return { disconnect, states: [...states.values()] }
+  return { disconnect, states: [...states.values()], device }
 }
 
 /**

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { checkRustdeskApi, denyIfNotAdmin, getAdminOverview } from '@/lib/admin'
+import { checkIdServer, denyIfNotAdmin, getAdminOverview } from '@/lib/admin'
 import { getRuntimeSettings } from '@/lib/settings'
 
 export const dynamic = 'force-dynamic'
@@ -10,6 +10,6 @@ export async function GET(request: Request) {
   if (denied) return denied
 
   const settings = await getRuntimeSettings()
-  const [overview, api] = await Promise.all([getAdminOverview(settings.freeSecondsPerDay), checkRustdeskApi()])
+  const [overview, api] = await Promise.all([getAdminOverview(settings.freeSecondsPerDay), checkIdServer()])
   return NextResponse.json({ overview, api, settings })
 }

@@ -1,7 +1,8 @@
 name: Сборка образа сервера RemIT
 
-# Собирает hbbs, hbbr и панель rustdesk-api со встроенной проверкой суточного
-# лимита и публикует приватный образ в GitHub Container Registry.
+# Собирает hbbs и hbbr со встроенной проверкой суточного лимита и токенов
+# входа и публикует приватный образ в GitHub Container Registry. Панели
+# rustdesk-api в образе нет: вход и адресные книги обслуживает сайт.
 
 on:
   workflow_dispatch:
@@ -29,20 +30,6 @@ jobs:
         with:
           path: remit
 
-      - name: Получить rustdesk-api
-        uses: actions/checkout@v4
-        with:
-          repository: lejianwen/rustdesk-api
-          ref: master
-          path: rustdesk-api
-
-      - name: Получить веб-интерфейс панели
-        uses: actions/checkout@v4
-        with:
-          repository: lejianwen/rustdesk-api-web
-          ref: master
-          path: rustdesk-api-web
-
       - name: Получить rustdesk-server (ветка forapi)
         uses: actions/checkout@v4
         with:
@@ -56,39 +43,6 @@ jobs:
           python3 remit/client/patches/hbbs-quota-hook.py \
             rustdesk-server/src/rendezvous_server.rs
 
-      - name: Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: rustdesk-api-web/package-lock.json
-
-      - name: Собрать веб-интерфейс панели
-        working-directory: rustdesk-api-web
-        run: |
-          npm ci
-          npm run build
-
-      - name: Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache-dependency-path: rustdesk-api/go.sum
-
-      - name: Собрать API панели
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-          rm -rf rustdesk-api/resources/admin
-          mkdir -p rustdesk-api/resources/admin
-          cp -a rustdesk-api-web/dist/. rustdesk-api/resources/admin/
-          mkdir -p rustdesk-api/amd64/release/data rustdesk-api/amd64/release/runtime
-          cp -a rustdesk-api/resources rustdesk-api/docs rustdesk-api/conf rustdesk-api/amd64/release/
-          cd rustdesk-api
-          go mod download
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 CC=musl-gcc CGO_LDFLAGS=-static \
-            go build -ldflags "-s -w" -o amd64/release/apimain ./cmd/apimain.go
-
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -101,6 +55,9 @@ jobs:
 
       - name: Собрать hbbs, hbbr и rustdesk-utils
         run: |
+          # musl-gcc нужен для C-зависимостей при сборке под musl.
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
           cargo build --manifest-path rustdesk-server/Cargo.toml \
             --release --all-features --target=x86_64-unknown-linux-musl
 
@@ -113,11 +70,13 @@ jobs:
           install -m 0755 rustdesk-server/target/x86_64-unknown-linux-musl/release/rustdesk-utils \
             rustdesk-server/docker/rootfs/usr/bin/rustdesk-utils
 
-      - name: Собрать базовый образ панели
-        run: docker build --build-arg BUILDARCH=amd64 -f rustdesk-api/Dockerfile -t remit-api:build rustdesk-api
-
-      - name: Использовать панель как основу образа сервера
-        run: sed -i '1c FROM remit-api:build' rustdesk-server/docker/Dockerfile
+      - name: Образ без панели
+        run: |
+          DOCKERFILE=rustdesk-server/docker/Dockerfile
+          { printf 'FROM alpine:3.20\nRUN apk add --no-cache tzdata tar xz\n'; tail -n +2 "$DOCKERFILE"; } > "$DOCKERFILE.remit"
+          mv "$DOCKERFILE.remit" "$DOCKERFILE"
+          rm -rf rustdesk-server/docker/rootfs/etc/s6-overlay/s6-rc.d/api \
+                 rustdesk-server/docker/rootfs/etc/s6-overlay/s6-rc.d/user/contents.d/api
 
       - name: Собрать итоговый образ
         run: |

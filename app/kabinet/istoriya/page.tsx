@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation'
 import { DataTable } from '@/components/ui/data-table'
 import { getCurrentUser } from '@/lib/auth'
 import { getHistory, type HistoryRow } from '@/lib/history'
+import { getStore } from '@/lib/store'
+import type { FileAudit } from '@/lib/types'
 import { PLANS, connectionsWord } from '@/lib/plans'
 import { formatDateTime, humanDuration } from '@/lib/time'
 
@@ -18,6 +20,14 @@ export default async function HistoryPage() {
   if (!user) redirect('/vhod')
 
   const history = await getHistory(user)
+  const store = await getStore()
+  const devices = await store.listDevicesByUser(user.id)
+  const names = new Map(devices.map((device) => [device.rustdeskId, device.name]))
+  const files = devices.length
+    ? (await store.listFileAudits({ hostIds: devices.map((device) => device.rustdeskId), limit: 200 })).filter(
+        (audit) => audit.createdAt >= history.since,
+      )
+    : []
   const shown = history.rows.slice(0, PAGE_ROWS)
   // Тариф с более длинной историей — подсказка для тех, кому не хватает.
   const longer = PLANS.find((plan) => !plan.negotiable && plan.historyDays > history.days && plan.priceMonthly > 0)
@@ -82,7 +92,13 @@ export default async function HistoryPage() {
             {
               key: 'controller',
               header: 'Кто подключался',
-              render: (row) => <span className="font-mono text-xs">{row.controllerId || '—'}</span>,
+              render: (row) => (
+                <span>
+                  {row.controllerName && <span className="text-text-primary">{row.controllerName} · </span>}
+                  <span className="font-mono text-xs">{row.controllerId || '—'}</span>
+                  {row.ip && <span className="block text-xs text-text-muted">{row.ip}</span>}
+                </span>
+              ),
             },
             { key: 'status', header: 'Как завершилась', render: (row) => row.status },
           ]}
@@ -92,6 +108,57 @@ export default async function HistoryPage() {
             На странице — последние {PAGE_ROWS}. Полный список за период — в файле для Excel.
           </p>
         )}
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="border-b border-white/8 px-6 py-4">
+          <h2 className="font-semibold">Передача файлов · {files.length}</h2>
+          <p className="mt-1 text-xs text-text-muted">Файлы, которые передавали с ваших устройств и на них.</p>
+        </div>
+        <DataTable<FileAudit>
+          rows={files}
+          getKey={(audit) => audit.id}
+          minWidth={820}
+          empty="За этот период файлы не передавали."
+          columns={[
+            { key: 'at', header: 'Когда', primary: true, render: (audit) => formatDateTime(audit.createdAt) },
+            {
+              key: 'direction',
+              header: 'Направление',
+              render: (audit) => (audit.type === 0 ? 'с устройства' : 'на устройство'),
+            },
+            {
+              key: 'host',
+              header: 'Устройство',
+              render: (audit) => (
+                <span>
+                  {names.get(audit.hostId) && <span className="text-text-primary">{names.get(audit.hostId)} · </span>}
+                  <span className="font-mono text-xs">{audit.hostId}</span>
+                </span>
+              ),
+            },
+            {
+              key: 'who',
+              header: 'Кто',
+              render: (audit) => (
+                <span>
+                  {audit.controllerName && <span className="text-text-primary">{audit.controllerName} · </span>}
+                  <span className="font-mono text-xs">{audit.controllerId || '—'}</span>
+                </span>
+              ),
+            },
+            {
+              key: 'files',
+              header: 'Что',
+              render: (audit) => (
+                <span className="break-all text-xs">
+                  {audit.path}
+                  {audit.num > 0 && <span className="text-text-muted"> · файлов: {audit.num}</span>}
+                </span>
+              ),
+            },
+          ]}
+        />
       </div>
     </div>
   )

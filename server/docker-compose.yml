@@ -1,5 +1,5 @@
-# Полный стек RemIT: сервер идентификации и ретрансляции, панель,
-# сайт с кабинетом и учётом квот, база данных.
+# Полный стек RemIT: сервер идентификации и ретрансляции (hbbs + hbbr),
+# сайт с кабинетом, админкой и API клиента, база данных.
 #
 #   docker compose --env-file .env up -d
 #
@@ -23,10 +23,12 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # hbbs + hbbr + панель rustdesk-api в одном образе (сборка lejianwen).
-  # Для фирменной сборки замените образ на свой приватный из GHCR.
+  # hbbs + hbbr. Вход, адресные книги и учёт времени обслуживает сайт (web).
+  # Рекомендуемый образ — свой, из .github/workflows/build-server-image.yml:
+  # в нём hbbs проверяет суточный лимит и токены входа (MUST_LOGIN).
+  # Стоковый rustdesk/rustdesk-server-s6 тоже работает, но без этих проверок.
   rustdesk:
-    image: ${RUSTDESK_IMAGE:-lejianwen/rustdesk-server-s6:latest}
+    image: ${RUSTDESK_IMAGE:-rustdesk/rustdesk-server-s6:latest}
     container_name: remit-rustdesk
     ports:
       - '21115:21115'
@@ -35,28 +37,20 @@ services:
       - '21117:21117'
       - '21118:21118'
       - '21119:21119'
-    expose:
-      - '21114'
     environment:
       - RELAY=${PUBLIC_ADDR}:21117
       - ENCRYPTED_ONLY=1
+      # Y — соединяться могут только клиенты, вошедшие в аккаунт.
       - MUST_LOGIN=${MUST_LOGIN:-N}
       - TZ=Europe/Moscow
-      - RUSTDESK_API_LANG=ru
-      - RUSTDESK_API_RUSTDESK_ID_SERVER=${PUBLIC_ADDR}:21116
-      - RUSTDESK_API_RUSTDESK_RELAY_SERVER=${PUBLIC_ADDR}:21117
-      - RUSTDESK_API_RUSTDESK_API_SERVER=https://${PUBLIC_DOMAIN}
-      - RUSTDESK_API_APP_TOKEN_EXPIRE=${TOKEN_EXPIRE:-720h}
-      - RUSTDESK_API_JWT_EXPIRE_DURATION=${TOKEN_EXPIRE:-720h}
-      - RUSTDESK_API_KEY_FILE=/data/id_ed25519.pub
+      # Ключ, которым сайт подписывает токены входа: по нему hbbs их проверяет.
       - RUSTDESK_API_JWT_KEY=${JWT_KEY:?задайте JWT_KEY}
-      - RUSTDESK_API_APP_REGISTER=false
       # Адрес службы квот: hbbs спрашивает её перед выдачей punch hole.
       - REMIT_QUOTA_URL=http://web:3000/api/v1/quota/check
       - REMIT_SERVICE_TOKEN=${REMIT_SERVICE_TOKEN:?задайте REMIT_SERVICE_TOKEN}
     volumes:
+      # Здесь лежит ключ сервера id_ed25519 — его нельзя терять и менять.
       - ./data/rustdesk:/data
-      - ./data/rustdesk-api:/app/data
     restart: unless-stopped
 
   web:
@@ -77,7 +71,9 @@ services:
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgres://${POSTGRES_USER:-remit}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-remit}
-      - RUSTDESK_API_UPSTREAM=http://rustdesk:21114
+      - REMIT_HBBS_INTERNAL=rustdesk:21116
+      - JWT_KEY=${JWT_KEY:?задайте JWT_KEY}
+      - REMIT_CLIENT_TOKEN_TTL=${REMIT_CLIENT_TOKEN_TTL:-2592000}
       - REMIT_DOMAIN=${PUBLIC_DOMAIN}
       - REMIT_ID_SERVER=${PUBLIC_ADDR}:21116
       - REMIT_RELAY_SERVER=${PUBLIC_ADDR}:21117
@@ -85,9 +81,6 @@ services:
       - REMIT_PUBLIC_KEY=${RUSTDESK_PUBLIC_KEY:-}
       - REMIT_AUTH_SECRET=${REMIT_AUTH_SECRET:?задайте REMIT_AUTH_SECRET}
       - REMIT_SERVICE_TOKEN=${REMIT_SERVICE_TOKEN}
-      - REMIT_PANEL_ADMIN_USER=${REMIT_PANEL_ADMIN_USER:-}
-      - REMIT_PANEL_ADMIN_PASSWORD=${REMIT_PANEL_ADMIN_PASSWORD:-}
-      - REMIT_PANEL_GROUP_ID=${REMIT_PANEL_GROUP_ID:-1}
       - REMIT_ADMIN_EMAILS=${REMIT_ADMIN_EMAILS:-}
       - REMIT_RELEASES_DIR=/app/data/releases
       - REMIT_MAX_UPLOAD_BYTES=${REMIT_MAX_UPLOAD_BYTES:-1073741824}

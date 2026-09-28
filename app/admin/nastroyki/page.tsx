@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import { SettingsForm } from '@/components/admin/settings-form'
 import { PolicyForm } from '@/components/admin/policy-form'
-import { checkRustdeskApi } from '@/lib/admin'
+import { checkIdServer } from '@/lib/admin'
 import { getRuntimeSettings } from '@/lib/settings'
 import { POLICY_HINTS, getClientPolicy } from '@/lib/policy'
 import { formatDateTime } from '@/lib/time'
@@ -11,14 +11,14 @@ export const metadata: Metadata = { title: 'Настройки' }
 export const dynamic = 'force-dynamic'
 
 export default async function AdminSettingsPage() {
-  const [settings, api, policy] = await Promise.all([getRuntimeSettings(), checkRustdeskApi(), getClientPolicy()])
+  const [settings, api, policy] = await Promise.all([getRuntimeSettings(), checkIdServer(), getClientPolicy()])
 
   const env = [
     { term: 'Домен', value: config.brand.domain },
     { term: 'ID-сервер', value: config.rustdesk.idServer },
     { term: 'Сервер-ретранслятор', value: config.rustdesk.relayServer },
     { term: 'API-сервер для клиентов', value: config.rustdesk.apiServer },
-    { term: 'Панель rustdesk-api', value: config.rustdesk.upstream },
+    { term: 'Подпись токенов клиента (JWT_KEY)', value: config.client.jwtKey ? 'задана' : 'не задана' },
     { term: 'Часовой пояс тарификации', value: config.quota.timeZone },
     { term: 'Приём оплаты', value: config.billing.provider === 'yookassa' ? 'ЮKassa' : 'вручную по счёту' },
     { term: 'Магазин ЮKassa', value: config.billing.yookassa.shopId || 'не задан' },
@@ -77,9 +77,9 @@ export default async function AdminSettingsPage() {
         <p className="mt-3 flex items-center gap-2 text-sm">
           <span className={`size-2 rounded-full ${api.ok ? 'bg-success' : 'bg-danger'}`} />
           <span className={api.ok ? 'text-success' : 'text-danger'}>
-            панель {api.ok ? 'отвечает' : 'недоступна'}
+            сервер идентификации {api.ok ? 'отвечает' : 'недоступен'}
           </span>
-          <span className="text-text-muted">HTTP {api.status || '—'}</span>
+          <span className="text-text-muted">{api.address}</span>
         </p>
         <p className="mt-2 break-all text-xs text-text-muted">{api.detail}</p>
       </div>

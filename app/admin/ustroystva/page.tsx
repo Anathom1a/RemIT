@@ -31,7 +31,7 @@ export default async function AdminDevicesPage() {
         <DataTable
           rows={devices}
           getKey={(device) => device.rustdeskId}
-          minWidth={820}
+          minWidth={980}
           empty="Устройств пока нет. Они появляются, когда клиент отправляет первый heartbeat."
           columns={[
             {
@@ -49,7 +49,27 @@ export default async function AdminDevicesPage() {
             {
               key: 'name',
               header: 'Имя и ОС',
-              render: (device) => `${device.name || '—'}${device.os ? ` · ${device.os}` : ''}`,
+              render: (device) => (
+                <span>
+                  {device.name || '—'}
+                  {device.os ? ` · ${device.os}` : ''}
+                  {(device.osUsername || device.cpu || device.memory) && (
+                    <span className="block text-xs text-text-muted">
+                      {[device.osUsername, device.cpu, device.memory].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </span>
+              ),
+            },
+            {
+              key: 'version',
+              header: 'Клиент и адрес',
+              render: (device) => (
+                <span className="text-xs">
+                  {device.version || '—'}
+                  {device.lastIp && <span className="block text-text-muted">{device.lastIp}</span>}
+                </span>
+              ),
             },
             {
               key: 'seen',

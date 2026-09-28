@@ -28,27 +28,6 @@ export interface PasswordReset {
   usedAt: string | null
 }
 
-/**
- * Связь аккаунта сайта с пользователем панели rustdesk-api.
- *
- * В клиенте человек входит почтой и паролем от сайта, а сайт сам входит в
- * панель от имени этого пользователя. Пароль в панели случайный, человек его
- * не знает и не вводит: он хранится здесь в зашифрованном виде.
- */
-export interface PanelAccount {
-  userId: string
-  /** id пользователя в панели. */
-  panelUserId: number
-  /** Логин в панели, в нижнем регистре. Клиент показывает его как имя. */
-  panelUsername: string
-  /** Пароль в панели, зашифрованный REMIT_AUTH_SECRET. */
-  secret: string
-  /** created — завели сами; linked — человек перенёс свой прежний аккаунт клиента. */
-  origin: 'created' | 'linked'
-  createdAt: string
-  updatedAt: string
-}
-
 export interface Device {
   id: string
   /** null — устройство видели на сервере, но оно ещё не привязано к аккаунту. */
@@ -59,7 +38,102 @@ export interface Device {
   name: string
   os: string
   version: string
+  /** Сведения о системе, которые присылает клиент (/api/sysinfo). */
+  osUsername: string
+  cpu: string
+  memory: string
+  /** Адрес, с которого устройство последний раз выходило на связь. */
+  lastIp: string
+  /** Когда клиент последний раз прислал сведения о системе; null — ещё не присылал. */
+  sysinfoAt: string | null
   lastSeenAt: string
+  createdAt: string
+}
+
+/**
+ * Вход в клиенте RemIT. Сам токен клиенту отдаём один раз, храним только хеш.
+ * Отозванные и истёкшие записи остаются — это журнал входов.
+ */
+export interface ClientToken {
+  tokenHash: string
+  userId: string
+  /** ID устройства в RustDesk, с которого вошли. */
+  deviceId: string
+  uuid: string
+  deviceName: string
+  os: string
+  ip: string
+  createdAt: string
+  lastUsedAt: string
+  expiresAt: string
+  revokedAt: string | null
+}
+
+/** Запись адресной книги — поля в том виде, в каком их понимает клиент RustDesk. */
+export interface AbPeer {
+  id: string
+  alias: string
+  username: string
+  hostname: string
+  platform: string
+  tags: string[]
+  hash: string
+  password: string
+  forceAlwaysRelay: boolean
+  rdpPort: string
+  rdpUsername: string
+  loginName: string
+  note: string
+  updatedAt: string
+}
+
+/** Метка адресной книги. color — цвет Flutter: 0xAARRGGBB. */
+export interface AbTag {
+  name: string
+  color: number
+}
+
+/** 1 — только чтение, 2 — чтение и запись, 3 — полный доступ. */
+export type AbRule = 1 | 2 | 3
+
+export interface AbShare {
+  userId: string
+  rule: AbRule
+}
+
+/**
+ * Адресная книга. У каждого аккаунта есть личная (personal), можно завести
+ * общие и дать к ним доступ другим аккаунтам.
+ */
+export interface AddressBook {
+  guid: string
+  ownerId: string
+  name: string
+  personal: boolean
+  note: string
+  peers: AbPeer[]
+  tags: AbTag[]
+  shares: AbShare[]
+  createdAt: string
+  updatedAt: string
+}
+
+/** Передача файлов из журнала клиента (/api/audit/file). */
+export interface FileAudit {
+  id: string
+  /** Устройство, на котором работал журнал (управляемое). */
+  hostId: string
+  controllerId: string
+  controllerName: string
+  ip: string
+  /** 0 — с управляемого устройства, 1 — на него. */
+  type: number
+  path: string
+  isFile: boolean
+  /** Сколько файлов в операции. */
+  num: number
+  /** До десяти самых крупных файлов: [имя, размер]. */
+  files: [string, number][]
   createdAt: string
 }
 
@@ -131,6 +205,11 @@ export interface ConnSession {
   seconds: number
   /** Причина закрытия: client | quota | concurrent_limit | stale. */
   closeReason: string | null
+  /** Имя управляющей стороны и адрес, с которого подключились (из аудита клиента). */
+  controllerName: string
+  ip: string
+  /** Вид подключения из аудита клиента: 0 — удалённый стол, 1 — файлы, 2 — порты и т. д. */
+  connType: number | null
 }
 
 /** Суточный расход времени по субъекту тарификации. */

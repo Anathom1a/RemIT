@@ -29,13 +29,15 @@ export default async function AdminUsersPage({
 
   const rows = await Promise.all(
     users.map(async (user) => {
-      const [subscription, quota, devices, clientAccount] = await Promise.all([
+      const [subscription, quota, devices, clientTokens] = await Promise.all([
         store.getActiveSubscription(user.id),
         getQuotaState(userSubject(user.id)),
         store.listDevicesByUser(user.id),
-        store.findPanelAccount(user.id),
+        store.listClientTokens({ userId: user.id, limit: 100 }),
       ])
-      return { user, subscription, quota, devices: devices.length, clientLogin: clientAccount?.panelUsername ?? null }
+      const now = new Date().toISOString()
+      const logins = clientTokens.filter((token) => !token.revokedAt && token.expiresAt > now).length
+      return { user, subscription, quota, devices: devices.length, logins }
     }),
   )
 
@@ -68,7 +70,7 @@ export default async function AdminUsersPage({
           <p className="card p-8 text-center text-sm text-text-muted">Ничего не найдено.</p>
         )}
 
-        {rows.map(({ user, subscription, quota, devices, clientLogin }) => (
+        {rows.map(({ user, subscription, quota, devices, logins }) => (
           <div key={user.id} className="card p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
@@ -116,8 +118,8 @@ export default async function AdminUsersPage({
                   <dd className="tabular-nums">{devices}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs text-text-muted">Логин в панели</dt>
-                  <dd className="truncate font-mono text-xs">{clientLogin ?? '—'}</dd>
+                  <dt className="text-xs text-text-muted">Входов в клиенте</dt>
+                  <dd className="tabular-nums">{logins}</dd>
                 </div>
               </dl>
             </div>
@@ -153,6 +155,21 @@ export default async function AdminUsersPage({
                 label="Обнулить расход за сегодня"
               />
               <ResetLinkButton userId={user.id} email={user.email} />
+              {logins > 0 && (
+                <ActionButton
+                  endpoint="/api/v1/admin/users"
+                  body={{ userId: user.id, action: 'revoke-client' }}
+                  label="Выйти из клиента везде"
+                  variant="danger"
+                  confirm={`Завершить все входы ${user.email} в клиенте?`}
+                />
+              )}
+              <a
+                href={`/admin/adresnye-knigi?user=${user.id}`}
+                className="inline-flex h-9 items-center rounded-xl px-3.5 text-sm text-text-secondary hover:text-text-primary"
+              >
+                Адресные книги
+              </a>
               <ActionButton
                 endpoint="/api/v1/admin/users"
                 body={{ userId: user.id, role: user.role === 'admin' ? 'user' : 'admin' }}

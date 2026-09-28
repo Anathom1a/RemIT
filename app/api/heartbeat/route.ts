@@ -2,14 +2,15 @@ import { NextResponse, after } from 'next/server'
 import { purgeOldHistory } from '@/lib/history'
 import { processHeartbeat } from '@/lib/quota'
 import { getClientPolicy } from '@/lib/policy'
-import { proxyToRustdeskApi } from '@/lib/upstream'
+import { clientIp } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * Шлюз heartbeat. Клиент шлёт сюда каждые 15 секунд `{id, uuid, ver, conns}`.
  *
- * Мы делаем в ответе две вещи:
+ * В ответе:
+ *   - `sysinfo` — просьба прислать сведения о системе, если их ещё нет;
  *   - `disconnect` — список conn_id, которые клиент разорвёт, когда бесплатные
  *     3 часа в сутки закончились;
  *   - `strategy` — настройки клиента из админки. Клиент применяет их сам,
@@ -31,27 +32,24 @@ export async function POST(request: Request) {
     ? payload.conns.map((value: unknown) => Number(value)).filter((value: number) => Number.isFinite(value))
     : []
 
-  const upstream = await proxyToRustdeskApi('/api/heartbeat', request, raw)
-  const body: Record<string, unknown> = upstream.json ?? {}
-
-  if (!hostId) {
-    return NextResponse.json(body, { status: upstream.status === 502 ? 200 : upstream.status })
-  }
+  const body: Record<string, unknown> = {}
+  if (!hostId) return NextResponse.json(body)
 
   const result = await processHeartbeat({
     hostId,
     uuid: payload.uuid ? String(payload.uuid) : undefined,
     version: payload.ver ? String(payload.ver) : undefined,
+    ip: clientIp(request),
     conns,
   })
 
   // Журнал старше срока хранения чистим попутно, не чаще раза в шесть часов.
   after(() => purgeOldHistory().catch((error) => console.error('[history] очистка журнала:', error)))
 
-  if (result.disconnect.length > 0) {
-    const fromUpstream = Array.isArray(body.disconnect) ? (body.disconnect as number[]) : []
-    body.disconnect = [...new Set([...fromUpstream, ...result.disconnect])]
-  }
+  if (result.disconnect.length > 0) body.disconnect = result.disconnect
+
+  // Сведений о системе ещё нет — просим клиент прислать их (/api/sysinfo).
+  if (!result.device?.sysinfoAt) body.sysinfo = true
 
   // Рассылка настроек клиентам: отдаём политику, пока клиент не подтвердит,
   // что уже применил именно эту версию.

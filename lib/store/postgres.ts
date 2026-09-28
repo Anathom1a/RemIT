@@ -3,8 +3,10 @@ import path from 'node:path'
 import type { Pool } from 'pg'
 import type { Store } from './index'
 import type {
+  AddressBook,
+  ClientToken,
+  FileAudit,
   PasswordReset,
-  PanelAccount,
   AuthSession,
   ConnSession,
   Device,
@@ -63,6 +65,11 @@ export class PostgresStore implements Store {
       name: row.name,
       os: row.os,
       version: row.version,
+      osUsername: row.os_username ?? '',
+      cpu: row.cpu ?? '',
+      memory: row.memory ?? '',
+      lastIp: row.last_ip ?? '',
+      sysinfoAt: iso(row.sysinfo_at ?? null),
       lastSeenAt: iso(row.last_seen_at)!,
       createdAt: iso(row.created_at)!,
     }
@@ -115,6 +122,9 @@ export class PostgresStore implements Store {
       endedAt: iso(row.ended_at),
       seconds: row.seconds,
       closeReason: row.close_reason,
+      controllerName: row.controller_name ?? '',
+      ip: row.ip ?? '',
+      connType: row.conn_type ?? null,
     }
   }
 
@@ -241,66 +251,251 @@ export class PostgresStore implements Store {
     }
   }
 
-  async findPanelAccount(userId: string): Promise<PanelAccount | null> {
-    const rows = await this.query('SELECT * FROM panel_accounts WHERE user_id = $1', [userId])
-    return rows[0] ? this.toPanelAccount(rows[0]) : null
+  private toClientToken(row: Row): ClientToken {
+    return {
+      tokenHash: row.token_hash,
+      userId: row.user_id,
+      deviceId: row.device_id,
+      uuid: row.uuid,
+      deviceName: row.device_name,
+      os: row.os,
+      ip: row.ip,
+      createdAt: iso(row.created_at)!,
+      lastUsedAt: iso(row.last_used_at)!,
+      expiresAt: iso(row.expires_at)!,
+      revokedAt: iso(row.revoked_at),
+    }
   }
 
-  async findPanelAccountByUsername(panelUsername: string): Promise<PanelAccount | null> {
-    const rows = await this.query('SELECT * FROM panel_accounts WHERE panel_username = $1', [
-      panelUsername.toLowerCase(),
-    ])
-    return rows[0] ? this.toPanelAccount(rows[0]) : null
-  }
-
-  async findPanelAccountByPanelUserId(panelUserId: number): Promise<PanelAccount | null> {
-    const rows = await this.query('SELECT * FROM panel_accounts WHERE panel_user_id = $1', [panelUserId])
-    return rows[0] ? this.toPanelAccount(rows[0]) : null
-  }
-
-  async savePanelAccount(account: PanelAccount): Promise<void> {
+  async createClientToken(token: ClientToken): Promise<void> {
     await this.query(
-      `INSERT INTO panel_accounts (user_id, panel_user_id, panel_username, secret, origin, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (user_id) DO UPDATE SET
-         panel_user_id = EXCLUDED.panel_user_id,
-         panel_username = EXCLUDED.panel_username,
-         secret = EXCLUDED.secret,
-         origin = EXCLUDED.origin,
-         updated_at = EXCLUDED.updated_at`,
+      `INSERT INTO client_tokens (token_hash, user_id, device_id, uuid, device_name, os, ip, created_at, last_used_at,
+                                  expires_at, revoked_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
-        account.userId,
-        account.panelUserId,
-        account.panelUsername,
-        account.secret,
-        account.origin,
-        account.createdAt,
-        account.updatedAt,
+        token.tokenHash,
+        token.userId,
+        token.deviceId,
+        token.uuid,
+        token.deviceName,
+        token.os,
+        token.ip,
+        token.createdAt,
+        token.lastUsedAt,
+        token.expiresAt,
+        token.revokedAt,
       ],
     )
   }
 
-  private toPanelAccount(row: Row): PanelAccount {
+  async findClientToken(tokenHash: string): Promise<ClientToken | null> {
+    const rows = await this.query('SELECT * FROM client_tokens WHERE token_hash = $1', [tokenHash])
+    return rows[0] ? this.toClientToken(rows[0]) : null
+  }
+
+  async touchClientToken(tokenHash: string, at: string): Promise<void> {
+    await this.query('UPDATE client_tokens SET last_used_at = $2 WHERE token_hash = $1', [tokenHash, at])
+  }
+
+  async revokeClientToken(tokenHash: string, at: string): Promise<void> {
+    await this.query('UPDATE client_tokens SET revoked_at = $2 WHERE token_hash = $1 AND revoked_at IS NULL', [
+      tokenHash,
+      at,
+    ])
+  }
+
+  async revokeUserClientTokens(userId: string, at: string): Promise<number> {
+    const rows = await this.query(
+      `UPDATE client_tokens SET revoked_at = $2
+       WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > $2
+       RETURNING token_hash`,
+      [userId, at],
+    )
+    return rows.length
+  }
+
+  async listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]> {
+    const rows = filter.userId
+      ? await this.query('SELECT * FROM client_tokens WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2', [
+          filter.userId,
+          filter.limit,
+        ])
+      : await this.query('SELECT * FROM client_tokens ORDER BY created_at DESC LIMIT $1', [filter.limit])
+    return rows.map((row) => this.toClientToken(row))
+  }
+
+  private toAddressBook(row: Row): AddressBook {
     return {
-      userId: row.user_id,
-      panelUserId: Number(row.panel_user_id),
-      panelUsername: row.panel_username,
-      secret: row.secret,
-      origin: row.origin === 'linked' ? 'linked' : 'created',
+      guid: row.guid,
+      ownerId: row.owner_id,
+      name: row.name,
+      personal: row.personal,
+      note: row.note,
+      peers: row.peers ?? [],
+      tags: row.tags ?? [],
+      shares: row.shares ?? [],
       createdAt: iso(row.created_at)!,
       updatedAt: iso(row.updated_at)!,
     }
   }
 
+  async findAddressBook(guid: string): Promise<AddressBook | null> {
+    const rows = await this.query('SELECT * FROM address_books WHERE guid = $1', [guid])
+    return rows[0] ? this.toAddressBook(rows[0]) : null
+  }
+
+  async findPersonalAddressBook(userId: string): Promise<AddressBook | null> {
+    const rows = await this.query('SELECT * FROM address_books WHERE owner_id = $1 AND personal', [userId])
+    return rows[0] ? this.toAddressBook(rows[0]) : null
+  }
+
+  async listAddressBooksByOwner(userId: string): Promise<AddressBook[]> {
+    const rows = await this.query(
+      'SELECT * FROM address_books WHERE owner_id = $1 ORDER BY personal DESC, created_at',
+      [userId],
+    )
+    return rows.map((row) => this.toAddressBook(row))
+  }
+
+  async listAddressBooksSharedWith(userId: string): Promise<AddressBook[]> {
+    const rows = await this.query('SELECT * FROM address_books WHERE shares @> $1::jsonb ORDER BY created_at', [
+      JSON.stringify([{ userId }]),
+    ])
+    return rows.map((row) => this.toAddressBook(row))
+  }
+
+  async listAddressBooks(limit: number): Promise<AddressBook[]> {
+    const rows = await this.query('SELECT * FROM address_books ORDER BY updated_at DESC LIMIT $1', [limit])
+    return rows.map((row) => this.toAddressBook(row))
+  }
+
+  async createAddressBook(book: AddressBook): Promise<boolean> {
+    const rows = await this.query(
+      `INSERT INTO address_books (guid, owner_id, name, personal, note, peers, tags, shares, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       ON CONFLICT DO NOTHING
+       RETURNING guid`,
+      [
+        book.guid,
+        book.ownerId,
+        book.name,
+        book.personal,
+        book.note,
+        JSON.stringify(book.peers),
+        JSON.stringify(book.tags),
+        JSON.stringify(book.shares),
+        book.createdAt,
+        book.updatedAt,
+      ],
+    )
+    return rows.length > 0
+  }
+
+  async updateAddressBook(guid: string, mutate: (book: AddressBook) => AddressBook): Promise<AddressBook | null> {
+    // Книга меняется целиком: блокируем строку, чтобы клиент и кабинет,
+    // меняющие её одновременно, не затёрли правки друг друга.
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      const result = await client.query('SELECT * FROM address_books WHERE guid = $1 FOR UPDATE', [guid])
+      if (!result.rows[0]) {
+        await client.query('ROLLBACK')
+        return null
+      }
+      const next = mutate(this.toAddressBook(result.rows[0]))
+      await client.query(
+        `UPDATE address_books SET name = $2, note = $3, peers = $4, tags = $5, shares = $6, updated_at = $7
+         WHERE guid = $1`,
+        [
+          guid,
+          next.name,
+          next.note,
+          JSON.stringify(next.peers),
+          JSON.stringify(next.tags),
+          JSON.stringify(next.shares),
+          next.updatedAt,
+        ],
+      )
+      await client.query('COMMIT')
+      return next
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined)
+      throw error
+    } finally {
+      client.release()
+    }
+  }
+
+  async deleteAddressBook(guid: string): Promise<void> {
+    await this.query('DELETE FROM address_books WHERE guid = $1', [guid])
+  }
+
+  private toFileAudit(row: Row): FileAudit {
+    return {
+      id: row.id,
+      hostId: row.host_id,
+      controllerId: row.controller_id,
+      controllerName: row.controller_name,
+      ip: row.ip,
+      type: row.type,
+      path: row.path,
+      isFile: row.is_file,
+      num: row.num,
+      files: row.files ?? [],
+      createdAt: iso(row.created_at)!,
+    }
+  }
+
+  async createFileAudit(audit: FileAudit): Promise<void> {
+    await this.query(
+      `INSERT INTO file_audits (id, host_id, controller_id, controller_name, ip, type, path, is_file, num, files, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      [
+        audit.id,
+        audit.hostId,
+        audit.controllerId,
+        audit.controllerName,
+        audit.ip,
+        audit.type,
+        audit.path,
+        audit.isFile,
+        audit.num,
+        JSON.stringify(audit.files),
+        audit.createdAt,
+      ],
+    )
+  }
+
+  async listFileAudits(filter: { hostIds?: string[]; limit: number }): Promise<FileAudit[]> {
+    const rows = filter.hostIds
+      ? await this.query(
+          'SELECT * FROM file_audits WHERE host_id = ANY($1) ORDER BY created_at DESC LIMIT $2',
+          [filter.hostIds, filter.limit],
+        )
+      : await this.query('SELECT * FROM file_audits ORDER BY created_at DESC LIMIT $1', [filter.limit])
+    return rows.map((row) => this.toFileAudit(row))
+  }
+
+  async deleteFileAuditsBefore(before: string): Promise<number> {
+    const rows = await this.query('DELETE FROM file_audits WHERE created_at < $1 RETURNING id', [before])
+    return rows.length
+  }
+
   async upsertDevice(device: Device): Promise<void> {
     await this.query(
-      `INSERT INTO devices (id, user_id, rustdesk_id, uuid, name, os, version, last_seen_at, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `INSERT INTO devices (id, user_id, rustdesk_id, uuid, name, os, version, os_username, cpu, memory, last_ip,
+                            sysinfo_at, last_seen_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (rustdesk_id) DO UPDATE SET
          uuid = COALESCE(NULLIF(EXCLUDED.uuid, ''), devices.uuid),
          name = COALESCE(NULLIF(EXCLUDED.name, ''), devices.name),
          os = COALESCE(NULLIF(EXCLUDED.os, ''), devices.os),
          version = COALESCE(NULLIF(EXCLUDED.version, ''), devices.version),
+         os_username = COALESCE(NULLIF(EXCLUDED.os_username, ''), devices.os_username),
+         cpu = COALESCE(NULLIF(EXCLUDED.cpu, ''), devices.cpu),
+         memory = COALESCE(NULLIF(EXCLUDED.memory, ''), devices.memory),
+         last_ip = COALESCE(NULLIF(EXCLUDED.last_ip, ''), devices.last_ip),
+         sysinfo_at = COALESCE(EXCLUDED.sysinfo_at, devices.sysinfo_at),
          user_id = COALESCE(EXCLUDED.user_id, devices.user_id),
          last_seen_at = EXCLUDED.last_seen_at`,
       [
@@ -311,6 +506,11 @@ export class PostgresStore implements Store {
         device.name,
         device.os,
         device.version,
+        device.osUsername,
+        device.cpu,
+        device.memory,
+        device.lastIp,
+        device.sysinfoAt,
         device.lastSeenAt,
         device.createdAt,
       ],
@@ -443,16 +643,21 @@ export class PostgresStore implements Store {
 
   async saveConnSession(session: ConnSession): Promise<void> {
     await this.query(
-      `INSERT INTO conn_sessions (key, host_id, conn_id, controller_id, subject_key, user_id, started_at, last_tick_at, ended_at, seconds, close_reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      `INSERT INTO conn_sessions (key, host_id, conn_id, controller_id, subject_key, user_id, started_at, last_tick_at,
+                                  ended_at, seconds, close_reason, controller_name, ip, conn_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (key) DO UPDATE SET
          controller_id = EXCLUDED.controller_id,
          subject_key = EXCLUDED.subject_key,
          user_id = EXCLUDED.user_id,
+         started_at = EXCLUDED.started_at,
          last_tick_at = EXCLUDED.last_tick_at,
          ended_at = EXCLUDED.ended_at,
          seconds = EXCLUDED.seconds,
-         close_reason = EXCLUDED.close_reason`,
+         close_reason = EXCLUDED.close_reason,
+         controller_name = EXCLUDED.controller_name,
+         ip = EXCLUDED.ip,
+         conn_type = EXCLUDED.conn_type`,
       [
         session.key,
         session.hostId,
@@ -465,6 +670,9 @@ export class PostgresStore implements Store {
         session.endedAt,
         session.seconds,
         session.closeReason,
+        session.controllerName,
+        session.ip,
+        session.connType,
       ],
     )
   }

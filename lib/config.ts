@@ -71,23 +71,20 @@ export const config = {
     relayServer: env('REMIT_RELAY_SERVER', 'remit.su:21117'),
     apiServer: env('REMIT_API_SERVER', 'https://remit.su'),
     publicKey: env('REMIT_PUBLIC_KEY', ''),
-    /** Внутренний адрес панели lejianwen/rustdesk-api, куда проксируем шлюз. */
-    upstream: env('RUSTDESK_API_UPSTREAM', 'http://127.0.0.1:21114'),
+    /** Адрес hbbs внутри сети сервера — для проверки связи из админки. */
+    hbbsInternal: env('REMIT_HBBS_INTERNAL', 'rustdesk:21116'),
   },
 
-  /**
-   * Единый аккаунт: сайт заводит пользователей в панели через её админский
-   * API. Нужен отдельный администратор панели — не тот, под которым вы сами
-   * заходите в /_admin/: сайт пользуется им постоянно.
-   */
-  panel: {
-    adminUser: env('REMIT_PANEL_ADMIN_USER'),
-    adminPassword: env('REMIT_PANEL_ADMIN_PASSWORD'),
+  /** Вход в клиенте RemIT: API клиента RustDesk обслуживает сам сайт. */
+  client: {
     /**
-     * Группа для новых пользователей. Только обычная (тип 1): в общей группе
-     * пользователи видят устройства друг друга. В свежей панели это группа 1.
+     * Ключ подписи токенов клиента (HS256). Тот же ключ получает hbbs
+     * (RUSTDESK_API_JWT_KEY): при MUST_LOGIN=Y он пускает только клиентов
+     * с действующим токеном. Пусто — токены без подписи, MUST_LOGIN не работает.
      */
-    groupId: envInt('REMIT_PANEL_GROUP_ID', 1),
+    jwtKey: env('JWT_KEY'),
+    /** Срок входа в клиенте. По истечении клиент попросит войти заново. */
+    tokenTtlSeconds: envInt('REMIT_CLIENT_TOKEN_TTL', 30 * 24 * 60 * 60),
   },
 
   /** Учёт времени. Сутки бесплатного тарифа считаются по московскому времени. */

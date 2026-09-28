@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Собирает образ сервера RemIT (hbbs, hbbr и панель) прямо на машине.
+# Собирает образ сервера RemIT (hbbs и hbbr) прямо на машине.
 #
 #   sudo bash server/build-image.sh
 #
 # То же самое, что делает .github/workflows/build-server-image.yml, но без
-# GitHub Actions: нужен только Docker, компиляторы Node, Go и Rust ставить не
-# надо — каждый шаг выполняется в официальном образе.
+# GitHub Actions: нужен только Docker, Rust ставить не надо — сборка идёт в
+# официальном образе. Панели rustdesk-api в образе нет: вход, адресные книги
+# и учёт времени обслуживает сайт.
 #
 # После сборки пропишите тег в server/.env:
 #   RUSTDESK_IMAGE=remit/rustdesk-server-s6:latest
@@ -77,16 +78,14 @@ clone() {  # clone <репозиторий> <ветка> <каталог> [recur
     fi
 }
 
-clone https://github.com/lejianwen/rustdesk-api.git master rustdesk-api
-clone https://github.com/lejianwen/rustdesk-api-web.git master rustdesk-api-web
 clone https://github.com/lejianwen/rustdesk-server.git forapi rustdesk-server recursive
 
 echo "==> Встраиваю проверку суточного лимита в hbbs"
 python3 "${REPO_ROOT}/client/patches/hbbs-quota-hook.py" \
     "${WORKDIR}/rustdesk-server/src/rendezvous_server.rs"
 
-# Каждый компилятор — в своём официальном образе, чтобы на сервере не
-# заводить ни Node, ни Go, ни Rust. Контейнеры работают под root: сборке нужен
+# Компилятор — в официальном образе, чтобы на сервере не заводить Rust.
+# Контейнер работает под root: сборке нужен
 # apt-get (musl-tools), поэтому владельца файлов возвращаем в конце.
 OWNER="$(stat -c '%u:%g' "$WORKDIR")"
 run_in() {  # run_in <образ> <каталог внутри WORKDIR> <команды>
@@ -94,23 +93,6 @@ run_in() {  # run_in <образ> <каталог внутри WORKDIR> <ком�
         -v "${WORKDIR}:/work" -w "/work/$2" \
         "$1" bash -lc "$3"
 }
-
-echo "==> Собираю веб-интерфейс панели"
-run_in node:20 rustdesk-api-web 'npm ci && npm run build'
-
-echo "==> Собираю API панели"
-rm -rf "${WORKDIR}/rustdesk-api/resources/admin"
-mkdir -p "${WORKDIR}/rustdesk-api/resources/admin"
-cp -a "${WORKDIR}/rustdesk-api-web/dist/." "${WORKDIR}/rustdesk-api/resources/admin/"
-mkdir -p "${WORKDIR}/rustdesk-api/${ARCH}/release/data" \
-         "${WORKDIR}/rustdesk-api/${ARCH}/release/runtime"
-cp -a "${WORKDIR}/rustdesk-api/resources" "${WORKDIR}/rustdesk-api/docs" \
-      "${WORKDIR}/rustdesk-api/conf" "${WORKDIR}/rustdesk-api/${ARCH}/release/"
-run_in golang:1.23 rustdesk-api "
-    apt-get update -qq && apt-get install -y -qq musl-tools &&
-    go mod download &&
-    CGO_ENABLED=1 GOOS=linux GOARCH=${ARCH} CC=${MUSL_CC} CGO_LDFLAGS=-static \
-        go build -ldflags '-s -w' -o ${ARCH}/release/apimain ./cmd/apimain.go"
 
 echo "==> Собираю hbbs, hbbr и rustdesk-utils"
 # musl-tools даёт musl-gcc — без него линковка musl-цели падает.
@@ -129,13 +111,16 @@ for binary in hbbs hbbr rustdesk-utils; do
         "${WORKDIR}/rustdesk-server/docker/rootfs/usr/bin/${binary}"
 done
 
-echo "==> Собираю базовый образ панели"
-docker build --build-arg "BUILDARCH=${ARCH}" \
-    -f "${WORKDIR}/rustdesk-api/Dockerfile" \
-    -t remit-api:build "${WORKDIR}/rustdesk-api"
+echo "==> Убираю из образа службу панели"
+# Dockerfile сервера по умолчанию строится поверх образа панели. Нам нужен
+# только hbbs и hbbr: берём чистый Alpine и выключаем службу api в s6.
+DOCKERFILE="${WORKDIR}/rustdesk-server/docker/Dockerfile"
+{ printf 'FROM alpine:3.20\nRUN apk add --no-cache tzdata tar xz\n'; tail -n +2 "$DOCKERFILE"; } > "${DOCKERFILE}.remit"
+mv "${DOCKERFILE}.remit" "$DOCKERFILE"
+rm -rf "${WORKDIR}/rustdesk-server/docker/rootfs/etc/s6-overlay/s6-rc.d/api" \
+       "${WORKDIR}/rustdesk-server/docker/rootfs/etc/s6-overlay/s6-rc.d/user/contents.d/api"
 
 echo "==> Собираю итоговый образ"
-sed -i "1c FROM remit-api:build" "${WORKDIR}/rustdesk-server/docker/Dockerfile"
 docker build --build-arg "S6_ARCH=${S6_ARCH}" -t "$IMAGE" \
     "${WORKDIR}/rustdesk-server/docker"
 

@@ -1,7 +1,9 @@
 import type {
+  AddressBook,
+  ClientToken,
+  FileAudit,
   AuthSession,
   PasswordReset,
-  PanelAccount,
   ConnSession,
   Device,
   Lead,
@@ -45,12 +47,35 @@ export interface Store {
   invalidatePasswordResets(userId: string, now: string): Promise<void>
   countRecentPasswordResets(userId: string, since: string): Promise<number>
 
-  /** Связь с аккаунтом панели rustdesk-api — для входа в клиент. */
-  findPanelAccount(userId: string): Promise<PanelAccount | null>
-  findPanelAccountByUsername(panelUsername: string): Promise<PanelAccount | null>
-  findPanelAccountByPanelUserId(panelUserId: number): Promise<PanelAccount | null>
-  /** Создаёт или заменяет связь аккаунта сайта. */
-  savePanelAccount(account: PanelAccount): Promise<void>
+  /** Входы в клиенте RemIT (токены API клиента). */
+  createClientToken(token: ClientToken): Promise<void>
+  findClientToken(tokenHash: string): Promise<ClientToken | null>
+  touchClientToken(tokenHash: string, at: string): Promise<void>
+  revokeClientToken(tokenHash: string, at: string): Promise<void>
+  /** Выход из клиента на всех устройствах; возвращает, сколько входов закрыто. */
+  revokeUserClientTokens(userId: string, at: string): Promise<number>
+  /** Новые сверху. Без userId — все (для админки). */
+  listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]>
+
+  /** Адресные книги клиента. */
+  findAddressBook(guid: string): Promise<AddressBook | null>
+  findPersonalAddressBook(userId: string): Promise<AddressBook | null>
+  listAddressBooksByOwner(userId: string): Promise<AddressBook[]>
+  listAddressBooksSharedWith(userId: string): Promise<AddressBook[]>
+  listAddressBooks(limit: number): Promise<AddressBook[]>
+  /** false — личная книга у владельца уже есть (гонка двух первых запросов). */
+  createAddressBook(book: AddressBook): Promise<boolean>
+  /**
+   * Атомарное изменение книги: mutate получает текущую версию и возвращает
+   * новую. Исключение из mutate отменяет изменение. null — книги нет.
+   */
+  updateAddressBook(guid: string, mutate: (book: AddressBook) => AddressBook): Promise<AddressBook | null>
+  deleteAddressBook(guid: string): Promise<void>
+
+  /** Журнал передачи файлов. */
+  createFileAudit(audit: FileAudit): Promise<void>
+  listFileAudits(filter: { hostIds?: string[]; limit: number }): Promise<FileAudit[]>
+  deleteFileAuditsBefore(before: string): Promise<number>
 
   upsertDevice(device: Device): Promise<void>
   findDeviceByRustdeskId(rustdeskId: string): Promise<Device | null>

@@ -11,6 +11,9 @@ const NAV = [
   { href: '/admin/platezhi', label: 'Платежи и подписки' },
   { href: '/admin/sessii', label: 'Сессии' },
   { href: '/admin/ustroystva', label: 'Устройства' },
+  { href: '/admin/vhody', label: 'Входы в клиенте' },
+  { href: '/admin/adresnye-knigi', label: 'Адресные книги' },
+  { href: '/admin/fayly', label: 'Передача файлов' },
   { href: '/admin/obnovleniya', label: 'Обновления' },
   { href: '/admin/nastroyki', label: 'Настройки' },
 ]

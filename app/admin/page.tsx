@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import { checkRustdeskApi, getAdminOverview } from '@/lib/admin'
+import { checkIdServer, getAdminOverview } from '@/lib/admin'
 import { getRuntimeSettings } from '@/lib/settings'
 import { formatPrice } from '@/lib/plans'
 import { humanDuration } from '@/lib/time'
@@ -8,14 +8,13 @@ import { config } from '@/lib/config'
 import { missingLegalFields } from '@/lib/legal'
 import { isMailConfigured } from '@/lib/mail'
 import { getLatestRelease } from '@/lib/updates'
-import { panelLinkEnabled } from '@/lib/panel'
 
 export const metadata: Metadata = { title: 'Админка' }
 export const dynamic = 'force-dynamic'
 
 export default async function AdminOverviewPage() {
   const settings = await getRuntimeSettings()
-  const [overview, api] = await Promise.all([getAdminOverview(settings.freeSecondsPerDay), checkRustdeskApi()])
+  const [overview, api] = await Promise.all([getAdminOverview(settings.freeSecondsPerDay), checkIdServer()])
 
   // Чек-лист перед запуском. Раньше эти напоминания висели на публичных
   // страницах и были видны посетителям; им место здесь.
@@ -57,11 +56,11 @@ export default async function AdminOverviewPage() {
       href: '/admin/polzovateli',
     },
     {
-      ok: panelLinkEnabled(),
-      title: 'Единый вход в клиенте',
-      detail: panelLinkEnabled()
-        ? 'Настроен: в клиенте входят почтой и паролем от кабинета.'
-        : 'Не заданы REMIT_PANEL_ADMIN_USER и REMIT_PANEL_ADMIN_PASSWORD — в клиенте работают только логины панели. См. docs/ACCOUNTS.md.',
+      ok: Boolean(config.client.jwtKey),
+      title: 'Подпись токенов клиента',
+      detail: config.client.jwtKey
+        ? 'Задана.'
+        : 'Не задан JWT_KEY: вход в клиенте работает, но режим «только для вошедших» (MUST_LOGIN) на сервере не включить.',
     },
     {
       ok: billingReady,
@@ -143,20 +142,15 @@ export default async function AdminOverviewPage() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="card p-6">
-          <h2 className="font-semibold">Панель rustdesk-api</h2>
+          <h2 className="font-semibold">Сервер идентификации</h2>
           <p className="mt-2 flex items-center gap-2 text-sm">
             <span className={`size-2 rounded-full ${api.ok ? 'bg-success' : 'bg-danger'}`} />
-            <span className={api.ok ? 'text-success' : 'text-danger'}>
-              {api.ok ? 'отвечает' : 'недоступна'}
-            </span>
-            <span className="text-text-muted">
-              {config.rustdesk.upstream} · HTTP {api.status || '—'}
-            </span>
+            <span className={api.ok ? 'text-success' : 'text-danger'}>{api.ok ? 'отвечает' : 'недоступен'}</span>
+            <span className="text-text-muted">{api.address}</span>
           </p>
           <p className="mt-2 break-all text-xs text-text-muted">{api.detail}</p>
           <p className="mt-4 text-sm text-text-secondary">
-            Через эту панель проходят вход клиентов и адресная книга. Шлюз учёта времени работает
-            независимо: если панель недоступна, время всё равно считается.
+            hbbs соединяет клиентов между собой. Вход, адресные книги и учёт времени обслуживает сам сайт.
           </p>
         </div>
 

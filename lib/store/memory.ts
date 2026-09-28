@@ -2,9 +2,11 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Store } from './index'
 import type {
+  AddressBook,
+  ClientToken,
+  FileAudit,
   AuthSession,
   PasswordReset,
-  PanelAccount,
   ConnSession,
   Device,
   Lead,
@@ -20,7 +22,9 @@ interface Snapshot {
   users: User[]
   authSessions: AuthSession[]
   passwordResets: PasswordReset[]
-  panelAccounts: PanelAccount[]
+  clientTokens: ClientToken[]
+  addressBooks: AddressBook[]
+  fileAudits: FileAudit[]
   devices: Device[]
   subscriptions: Subscription[]
   payments: Payment[]
@@ -46,7 +50,9 @@ export class MemoryStore implements Store {
   private users = new Map<string, User>()
   private authSessions = new Map<string, AuthSession>()
   private passwordResets = new Map<string, PasswordReset>()
-  private panelAccounts = new Map<string, PanelAccount>()
+  private clientTokens = new Map<string, ClientToken>()
+  private addressBooks = new Map<string, AddressBook>()
+  private fileAudits: FileAudit[] = []
   private devices = new Map<string, Device>()
   private subscriptions = new Map<string, Subscription>()
   private payments = new Map<string, Payment>()
@@ -80,7 +86,9 @@ export class MemoryStore implements Store {
       this.users = new Map(snapshot.users?.map((u) => [u.id, u]))
       this.authSessions = new Map(snapshot.authSessions?.map((s) => [s.tokenHash, s]))
       this.passwordResets = new Map(snapshot.passwordResets?.map((r) => [r.tokenHash, r]))
-      this.panelAccounts = new Map(snapshot.panelAccounts?.map((a) => [a.userId, a]))
+      this.clientTokens = new Map(snapshot.clientTokens?.map((t) => [t.tokenHash, t]))
+      this.addressBooks = new Map(snapshot.addressBooks?.map((b) => [b.guid, b]))
+      this.fileAudits = snapshot.fileAudits ?? []
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
       this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, s]))
       // kind, fromPlan и upgradeUntil появились позже: у старых записей их нет.
@@ -110,7 +118,9 @@ export class MemoryStore implements Store {
       users: [...this.users.values()],
       authSessions: [...this.authSessions.values()],
       passwordResets: [...this.passwordResets.values()],
-      panelAccounts: [...this.panelAccounts.values()],
+      clientTokens: [...this.clientTokens.values()],
+      addressBooks: [...this.addressBooks.values()],
+      fileAudits: this.fileAudits,
       devices: [...this.devices.values()],
       subscriptions: [...this.subscriptions.values()],
       payments: [...this.payments.values()],
@@ -232,26 +242,133 @@ export class MemoryStore implements Store {
     return [...this.passwordResets.values()].filter((r) => r.userId === userId && r.createdAt >= since).length
   }
 
-  async findPanelAccount(userId: string): Promise<PanelAccount | null> {
+  async createClientToken(token: ClientToken): Promise<void> {
     await this.sync()
-    return this.panelAccounts.get(userId) ?? null
-  }
-
-  async findPanelAccountByUsername(panelUsername: string): Promise<PanelAccount | null> {
-    await this.sync()
-    const username = panelUsername.toLowerCase()
-    return [...this.panelAccounts.values()].find((a) => a.panelUsername === username) ?? null
-  }
-
-  async findPanelAccountByPanelUserId(panelUserId: number): Promise<PanelAccount | null> {
-    await this.sync()
-    return [...this.panelAccounts.values()].find((a) => a.panelUserId === panelUserId) ?? null
-  }
-
-  async savePanelAccount(account: PanelAccount): Promise<void> {
-    await this.sync()
-    this.panelAccounts.set(account.userId, account)
+    this.clientTokens.set(token.tokenHash, token)
     await this.persist()
+  }
+
+  async findClientToken(tokenHash: string): Promise<ClientToken | null> {
+    await this.sync()
+    return this.clientTokens.get(tokenHash) ?? null
+  }
+
+  async touchClientToken(tokenHash: string, at: string): Promise<void> {
+    await this.sync()
+    const token = this.clientTokens.get(tokenHash)
+    if (!token) return
+    this.clientTokens.set(tokenHash, { ...token, lastUsedAt: at })
+    await this.persist()
+  }
+
+  async revokeClientToken(tokenHash: string, at: string): Promise<void> {
+    await this.sync()
+    const token = this.clientTokens.get(tokenHash)
+    if (!token || token.revokedAt) return
+    this.clientTokens.set(tokenHash, { ...token, revokedAt: at })
+    await this.persist()
+  }
+
+  async revokeUserClientTokens(userId: string, at: string): Promise<number> {
+    await this.sync()
+    let count = 0
+    for (const [key, token] of this.clientTokens) {
+      if (token.userId === userId && !token.revokedAt && token.expiresAt > at) {
+        this.clientTokens.set(key, { ...token, revokedAt: at })
+        count += 1
+      }
+    }
+    if (count) await this.persist()
+    return count
+  }
+
+  async listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]> {
+    await this.sync()
+    return [...this.clientTokens.values()]
+      .filter((t) => !filter.userId || t.userId === filter.userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, filter.limit)
+  }
+
+  async findAddressBook(guid: string): Promise<AddressBook | null> {
+    await this.sync()
+    return this.addressBooks.get(guid) ?? null
+  }
+
+  async findPersonalAddressBook(userId: string): Promise<AddressBook | null> {
+    await this.sync()
+    return [...this.addressBooks.values()].find((b) => b.ownerId === userId && b.personal) ?? null
+  }
+
+  async listAddressBooksByOwner(userId: string): Promise<AddressBook[]> {
+    await this.sync()
+    return [...this.addressBooks.values()]
+      .filter((b) => b.ownerId === userId)
+      .sort((a, b) => Number(b.personal) - Number(a.personal) || a.createdAt.localeCompare(b.createdAt))
+  }
+
+  async listAddressBooksSharedWith(userId: string): Promise<AddressBook[]> {
+    await this.sync()
+    return [...this.addressBooks.values()]
+      .filter((b) => b.shares.some((share) => share.userId === userId))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  }
+
+  async listAddressBooks(limit: number): Promise<AddressBook[]> {
+    await this.sync()
+    return [...this.addressBooks.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, limit)
+  }
+
+  async createAddressBook(book: AddressBook): Promise<boolean> {
+    await this.sync()
+    if (book.personal && [...this.addressBooks.values()].some((b) => b.ownerId === book.ownerId && b.personal)) {
+      return false
+    }
+    this.addressBooks.set(book.guid, book)
+    await this.persist()
+    return true
+  }
+
+  async updateAddressBook(guid: string, mutate: (book: AddressBook) => AddressBook): Promise<AddressBook | null> {
+    await this.sync()
+    const book = this.addressBooks.get(guid)
+    if (!book) return null
+    const next = mutate(structuredClone(book))
+    this.addressBooks.set(guid, next)
+    await this.persist()
+    return next
+  }
+
+  async deleteAddressBook(guid: string): Promise<void> {
+    await this.sync()
+    this.addressBooks.delete(guid)
+    await this.persist()
+  }
+
+  async createFileAudit(audit: FileAudit): Promise<void> {
+    await this.sync()
+    this.fileAudits.push(audit)
+    await this.persist()
+  }
+
+  async listFileAudits(filter: { hostIds?: string[]; limit: number }): Promise<FileAudit[]> {
+    await this.sync()
+    const hosts = filter.hostIds ? new Set(filter.hostIds) : null
+    return this.fileAudits
+      .filter((a) => !hosts || hosts.has(a.hostId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, filter.limit)
+  }
+
+  async deleteFileAuditsBefore(before: string): Promise<number> {
+    await this.sync()
+    const kept = this.fileAudits.filter((a) => a.createdAt >= before)
+    const removed = this.fileAudits.length - kept.length
+    if (removed) {
+      this.fileAudits = kept
+      await this.persist()
+    }
+    return removed
   }
 
   async upsertDevice(device: Device): Promise<void> {

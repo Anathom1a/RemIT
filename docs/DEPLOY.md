@@ -62,9 +62,9 @@ YOOKASSA_SECRET_KEY=...
 sudo bash server/build-image.sh
 ```
 
-Скрипт забирает исходники панели и сервера, накатывает патч лимита и собирает
-образ. Node, Go и Rust на машину ставить не нужно: каждый шаг выполняется в
-официальном образе, из инструментов нужен только Docker. Готовый образ
+Скрипт забирает исходники сервера (lejianwen/rustdesk-server), накатывает патч
+лимита и собирает образ с hbbs и hbbr. Rust на машину ставить не нужно: сборка
+идёт в официальном образе, из инструментов нужен только Docker. Готовый образ
 получает тег `remit/rustdesk-server-s6:latest` — его и пропишите в
 `server/.env`:
 
@@ -122,10 +122,11 @@ npm run dev
 cd server
 docker compose ps                  # состояние
 docker compose logs -f web         # логи сайта и учёта квот
-docker compose logs -f rustdesk    # логи hbbs, hbbr и панели
+docker compose logs -f rustdesk    # логи hbbs и hbbr
 docker compose pull && docker compose up -d   # обновление
 ```
 
-Резервные копии — каталог `server/data`: база, ключи сервера и данные панели.
+Резервные копии — каталог `server/data`: база (в ней и адресные книги), ключи
+сервера, сборки клиента и вложения обращений.
 Ключ `data/rustdesk/id_ed25519` восстановлению не подлежит: при его потере все
 собранные клиенты перестанут доверять серверу.

@@ -103,14 +103,26 @@ export async function getAdminOverview(freeSecondsPerDay: number): Promise<Admin
   }
 }
 
-/** Проверка связи с панелью rustdesk-api: она обслуживает клиентов вместе с нами. */
-export async function checkRustdeskApi(): Promise<{ ok: boolean; status: number; detail: string }> {
-  const url = `${config.rustdesk.upstream.replace(/\/$/, '')}/api/version`
-  try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(4000) })
-    const text = (await response.text()).slice(0, 200)
-    return { ok: response.ok, status: response.status, detail: text || 'ответ без тела' }
-  } catch (error) {
-    return { ok: false, status: 0, detail: error instanceof Error ? error.message : 'нет связи' }
-  }
+/**
+ * Проверка связи с сервером идентификации (hbbs): открываем TCP-соединение
+ * на его порт. Сайт и hbbs в одной сети docker, поэтому адрес внутренний.
+ */
+export async function checkIdServer(): Promise<{ ok: boolean; address: string; detail: string }> {
+  const address = config.rustdesk.hbbsInternal
+  const [host, portText] = address.split(':')
+  const port = Number(portText) || 21116
+  const { Socket } = await import('node:net')
+  return new Promise((resolve) => {
+    const socket = new Socket()
+    const started = Date.now()
+    const done = (ok: boolean, detail: string) => {
+      socket.destroy()
+      resolve({ ok, address, detail })
+    }
+    socket.setTimeout(3000)
+    socket.once('connect', () => done(true, `соединение за ${Date.now() - started} мс`))
+    socket.once('timeout', () => done(false, 'нет ответа за 3 с'))
+    socket.once('error', (error) => done(false, error.message))
+    socket.connect(port, host)
+  })
 }

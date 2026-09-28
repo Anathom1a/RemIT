@@ -50,7 +50,13 @@ export default async function AdminSessionsPage() {
             {
               key: 'controller',
               header: 'Управляющий',
-              render: (session) => <span className="font-mono text-xs">{session.controllerId || '—'}</span>,
+              render: (session) => (
+                <span>
+                  {session.controllerName && <span className="text-text-primary">{session.controllerName} · </span>}
+                  <span className="font-mono text-xs">{session.controllerId || '—'}</span>
+                  {session.ip && <span className="block text-xs text-text-muted">{session.ip}</span>}
+                </span>
+              ),
             },
             {
               key: 'host',

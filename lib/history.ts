@@ -24,6 +24,9 @@ export interface HistoryRow {
   hostId: string
   hostName: string
   controllerId: string
+  /** Имя компьютера управляющей стороны и адрес, с которого подключились. */
+  controllerName: string
+  ip: string
   /** outgoing — подключались вы, incoming — подключались к вашему устройству. */
   direction: 'outgoing' | 'incoming'
   status: string
@@ -81,6 +84,8 @@ export async function getHistory(user: User, now = new Date()): Promise<History>
     hostId: session.hostId,
     hostName: names.get(session.hostId) ?? '',
     controllerId: session.controllerId,
+    controllerName: session.controllerName,
+    ip: session.ip,
     direction: own.has(session.subjectKey) ? 'outgoing' : 'incoming',
     status: statusOf(session),
   }))
@@ -117,6 +122,8 @@ export function historyCsv(history: History): string {
     'Устройство (ID)',
     'Имя устройства',
     'Кто подключался (ID)',
+    'Кто подключался (имя)',
+    'Адрес',
     'Как завершилась',
   ]
   const lines = history.rows.map((row) =>
@@ -128,13 +135,15 @@ export function historyCsv(history: History): string {
       row.hostId,
       row.hostName,
       row.controllerId,
+      row.controllerName,
+      row.ip,
       row.status,
     ]
       .map(csvCell)
       .join(';'),
   )
   lines.push(
-    ['Итого', '', minutes(history.totalSeconds), '', '', '', '', `${history.rows.length} ${connectionsWord(history.rows.length)}`].join(';'),
+    ['Итого', '', minutes(history.totalSeconds), '', '', '', '', '', '', `${history.rows.length} ${connectionsWord(history.rows.length)}`].join(';'),
   )
   return '﻿' + [header.join(';'), ...lines].join('\r\n') + '\r\n'
 }
@@ -142,12 +151,14 @@ export function historyCsv(history: History): string {
 let lastPurge = 0
 
 /**
- * Удаляет журнал старше срока хранения. Вызывается попутно (из heartbeat),
+ * Удаляет журнал подключений и передачи файлов старше срока хранения. Вызывается попутно (из heartbeat),
  * не чаще раза в шесть часов на процесс.
  */
 export async function purgeOldHistory(now = new Date()): Promise<number> {
   if (now.getTime() - lastPurge < 6 * 60 * 60 * 1000) return 0
   lastPurge = now.getTime()
   const store = await getStore()
-  return store.deleteConnSessionsBefore(new Date(now.getTime() - HISTORY_RETENTION_DAYS * DAY_MS).toISOString())
+  const before = new Date(now.getTime() - HISTORY_RETENTION_DAYS * DAY_MS).toISOString()
+  const [sessions, files] = await Promise.all([store.deleteConnSessionsBefore(before), store.deleteFileAuditsBefore(before)])
+  return sessions + files
 }

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Проверяет, что nginx отдаёт каждый путь сайта сайту, а не панели.
+"""Проверяет, что nginx отдаёт сайту все его пути и что сайт знает все пути клиента.
 
     python3 server/nginx/check-routes.py [путь к конфигу]
 
-Зачем: сайт и панель rustdesk-api живут на одном домене и делят префикс /api/.
-Панель забирает /api/ целиком, поэтому каждый наш путь внутри /api/ должен быть
-перечислен в конфиге отдельно. Забыли — запрос молча уходит в панель и
-возвращает 404. Так уже случилось с /api/version/latest: проверка обновлений
-в клиенте перестала работать, хотя маршрут в приложении был на месте.
-
-Скрипт разбирает location из server/nginx/remit.conf по правилам nginx
-(точное совпадение важнее, среди префиксов побеждает самый длинный) и сверяет
-с маршрутами из app/api.
+Две проверки:
+1. Каждый маршрут из app/api по правилам nginx (точное совпадение важнее,
+   среди префиксов побеждает самый длинный) уходит на сайт. Так уже было с
+   /api/version/latest: маршрут в приложении был, а nginx отдавал путь
+   другому серверу, и проверка обновлений молча возвращала 404.
+2. Для каждого пути, который вызывает клиент RustDesk, в app/api есть
+   маршрут. API клиента обслуживает сам сайт, и забытый путь означает, что
+   какая-то функция клиента тихо сломается.
 """
 
 from __future__ import annotations
@@ -25,22 +24,37 @@ CONF = ROOT / "server" / "nginx" / "remit.conf"
 API_DIR = ROOT / "app" / "api"
 
 SITE = "remit_web"
-PANEL = "rustdesk_api"
 
-# Пути панели, которые обслуживают адресную книгу и доступные устройства
-# в клиенте: они должны остаться за панелью. /api/login принимает сайт
-# (единый аккаунт) и сам передаёт его панели.
-PANEL_PATHS = [
-    "/api/currentUser",
-    "/api/ab",
-    "/api/ab/personal",
-    "/api/ab/peers",
-    "/api/ab/shared/profiles",
-    "/api/device-group/accessible",
-    "/api/peers",
-    "/api/sysinfo",
+# Пути, которые вызывает клиент RustDesk (flutter/lib/models, src/hbbs_http,
+# src/server/connection.rs). Динамический сегмент — obrazec.
+CLIENT_PATHS = [
+    "/api/login",
     "/api/login-options",
-    "/api/version",
+    "/api/logout",
+    "/api/currentUser",
+    "/api/heartbeat",
+    "/api/sysinfo",
+    "/api/sysinfo_ver",
+    "/api/audit/conn",
+    "/api/audit/file",
+    "/api/audit/alarm",
+    "/api/users",
+    "/api/peers",
+    "/api/device-group/accessible",
+    "/api/ab",
+    "/api/ab/settings",
+    "/api/ab/personal",
+    "/api/ab/shared/profiles",
+    "/api/ab/peers",
+    "/api/ab/tags/obrazec",
+    "/api/ab/peer/add/obrazec",
+    "/api/ab/peer/update/obrazec",
+    "/api/ab/peer/obrazec",
+    "/api/ab/tag/add/obrazec",
+    "/api/ab/tag/rename/obrazec",
+    "/api/ab/tag/update/obrazec",
+    "/api/ab/tag/obrazec",
+    "/api/version/latest",
 ]
 
 
@@ -103,18 +117,18 @@ def main() -> int:
         if target != SITE:
             failures.append(f"  {uri} -> {target}, а должен идти на сайт")
 
-    for uri in PANEL_PATHS:
-        target = resolve(uri, exact, prefix)
-        if target != PANEL:
-            failures.append(f"  {uri} -> {target}, а должен идти в панель")
+    routes = set(site_routes())
+    for uri in CLIENT_PATHS:
+        if uri not in routes:
+            failures.append(f"  {uri}: клиент вызывает этот путь, а маршрута в app/api нет")
 
     if failures:
         print("Маршруты nginx разъехались с приложением:")
         print("\n".join(failures))
-        print("\nДобавьте location в server/nginx/remit.conf.")
+        print("\nПоправьте server/nginx/remit.conf или добавьте маршрут в app/api.")
         return 1
 
-    print(f"Проверено маршрутов сайта: {len(site_routes())}, путей панели: {len(PANEL_PATHS)}. Расхождений нет.")
+    print(f"Проверено маршрутов сайта: {len(routes)}, путей клиента: {len(CLIENT_PATHS)}. Расхождений нет.")
     return 0
 
 

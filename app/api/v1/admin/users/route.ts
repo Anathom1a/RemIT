@@ -45,6 +45,7 @@ export async function GET(request: Request) {
  * Смена роли: выдать или снять права администратора.
  * С action: "reset-link" — ссылка для сброса пароля, чтобы передать её
  * человеку, если письмо не дошло или почта ещё не настроена.
+ * С action: "revoke-client" — выход из клиента (token — один вход, иначе все).
  */
 export async function POST(request: Request) {
   const denied = await denyIfNotAdmin(request)
@@ -59,6 +60,21 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
     const link = await createResetLink(user.id)
     return NextResponse.json({ ok: true, link, expiresInMinutes: RESET_TTL_MS / 60000 })
+  }
+
+  // Выход из клиента: один вход (token — хеш) или все входы пользователя.
+  if (payload.action === 'revoke-client') {
+    const store = await getStore()
+    const now = new Date().toISOString()
+    if (payload.token) {
+      const token = await store.findClientToken(String(payload.token))
+      if (!token) return NextResponse.json({ error: 'Вход не найден' }, { status: 404 })
+      await store.revokeClientToken(token.tokenHash, now)
+      return NextResponse.json({ ok: true, count: 1 })
+    }
+    const user = await store.findUserById(userId)
+    if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
+    return NextResponse.json({ ok: true, count: await store.revokeUserClientTokens(user.id, now) })
   }
 
   const role = String(payload.role ?? '')

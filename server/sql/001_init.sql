@@ -30,18 +30,6 @@ CREATE TABLE IF NOT EXISTS password_resets (
 
 CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets(user_id, created_at DESC);
 
--- Единый аккаунт: в клиенте входят почтой и паролем сайта, а сайт входит в
--- панель rustdesk-api от имени связанного пользователя. secret — пароль в
--- панели, зашифрованный REMIT_AUTH_SECRET; человек его не знает.
-CREATE TABLE IF NOT EXISTS panel_accounts (
-    user_id        TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    panel_user_id  INTEGER NOT NULL UNIQUE,
-    panel_username TEXT NOT NULL UNIQUE,
-    secret         TEXT NOT NULL,
-    origin         TEXT NOT NULL DEFAULT 'created',
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-);
 
 -- Устройства с установленным клиентом. user_id пустой, пока устройство
 -- не привязано к аккаунту в личном кабинете.
@@ -58,6 +46,69 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 CREATE INDEX IF NOT EXISTS devices_user_idx ON devices(user_id);
+
+-- Сведения о системе из клиента (/api/sysinfo) и адрес последнего выхода на связь.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS os_username TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS cpu TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS memory TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_ip TEXT NOT NULL DEFAULT '';
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS sysinfo_at TIMESTAMPTZ;
+
+-- Входы в клиенте RemIT. Храним хеш токена; отозванные записи остаются
+-- журналом входов.
+CREATE TABLE IF NOT EXISTS client_tokens (
+    token_hash   TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    device_id    TEXT NOT NULL DEFAULT '',
+    uuid         TEXT NOT NULL DEFAULT '',
+    device_name  TEXT NOT NULL DEFAULT '',
+    os           TEXT NOT NULL DEFAULT '',
+    ip           TEXT NOT NULL DEFAULT '',
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at   TIMESTAMPTZ NOT NULL,
+    revoked_at   TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS client_tokens_user_idx ON client_tokens(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS client_tokens_created_idx ON client_tokens(created_at DESC);
+
+-- Адресные книги клиента. Записи, метки и доступы — одним документом:
+-- книга читается и меняется целиком, а размер у неё небольшой.
+CREATE TABLE IF NOT EXISTS address_books (
+    guid       TEXT PRIMARY KEY,
+    owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL DEFAULT '',
+    personal   BOOLEAN NOT NULL DEFAULT false,
+    note       TEXT NOT NULL DEFAULT '',
+    peers      JSONB NOT NULL DEFAULT '[]',
+    tags       JSONB NOT NULL DEFAULT '[]',
+    shares     JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS address_books_owner_idx ON address_books(owner_id);
+CREATE UNIQUE INDEX IF NOT EXISTS address_books_personal_idx ON address_books(owner_id) WHERE personal;
+CREATE INDEX IF NOT EXISTS address_books_shares_idx ON address_books USING GIN (shares jsonb_path_ops);
+
+-- Журнал передачи файлов из клиента (/api/audit/file).
+CREATE TABLE IF NOT EXISTS file_audits (
+    id              TEXT PRIMARY KEY,
+    host_id         TEXT NOT NULL,
+    controller_id   TEXT NOT NULL DEFAULT '',
+    controller_name TEXT NOT NULL DEFAULT '',
+    ip              TEXT NOT NULL DEFAULT '',
+    type            INTEGER NOT NULL DEFAULT 0,
+    path            TEXT NOT NULL DEFAULT '',
+    is_file         BOOLEAN NOT NULL DEFAULT false,
+    num             INTEGER NOT NULL DEFAULT 0,
+    files           JSONB NOT NULL DEFAULT '[]',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS file_audits_host_idx ON file_audits(host_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS file_audits_created_idx ON file_audits(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS subscriptions (
     id          TEXT PRIMARY KEY,
@@ -115,6 +166,11 @@ CREATE TABLE IF NOT EXISTS conn_sessions (
     seconds       INTEGER NOT NULL DEFAULT 0,
     close_reason  TEXT
 );
+
+-- Кто подключался и откуда — из аудита клиента.
+ALTER TABLE conn_sessions ADD COLUMN IF NOT EXISTS controller_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE conn_sessions ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT '';
+ALTER TABLE conn_sessions ADD COLUMN IF NOT EXISTS conn_type INTEGER;
 
 CREATE INDEX IF NOT EXISTS conn_sessions_host_idx ON conn_sessions(host_id) WHERE ended_at IS NULL;
 CREATE INDEX IF NOT EXISTS conn_sessions_subject_idx ON conn_sessions(subject_key, started_at DESC);

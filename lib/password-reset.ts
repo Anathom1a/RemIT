@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { createUserSession, hashPassword, normalizeEmail } from './auth'
-import { rotatePanelPassword } from './panel'
 import { config } from './config'
 import { escapeHtml, sendMail } from './mail'
 import { getStore } from './store'
@@ -81,12 +80,25 @@ export async function requestPasswordReset(rawEmail: string, now = new Date()): 
   const user = await store.findUserByEmail(normalizeEmail(rawEmail))
   if (!user) return
 
-  const since = new Date(now.getTime() - 60 * 60 * 1000).toISOString()
-  if ((await store.countRecentPasswordResets(user.id, since)) >= MAX_PER_ACCOUNT_PER_HOUR) return
+  // Проверка лимита и создание ссылки — по очереди для одного аккаунта: иначе
+  // несколько запросов подряд одновременно видят «ещё можно» и шлют лишние письма.
+  const previous = resetQueue.get(user.id) ?? Promise.resolve()
+  const task = previous.then(async () => {
+    const since = new Date(now.getTime() - 60 * 60 * 1000).toISOString()
+    if ((await store.countRecentPasswordResets(user.id, since)) >= MAX_PER_ACCOUNT_PER_HOUR) return null
+    return createResetLink(user.id, now)
+  })
+  const tail = task.then(() => undefined, () => undefined)
+  resetQueue.set(user.id, tail)
+  tail.then(() => {
+    if (resetQueue.get(user.id) === tail) resetQueue.delete(user.id)
+  })
 
-  const link = await createResetLink(user.id, now)
-  await sendMail({ to: user.email, ...resetEmail(user, link) })
+  const link = await task
+  if (link) await sendMail({ to: user.email, ...resetEmail(user, link) })
 }
+
+const resetQueue = new Map<string, Promise<void>>()
 
 /** Действует ли ссылка — чтобы сразу сказать об устаревшей, а не после ввода пароля. */
 export async function isResetTokenValid(token: string, now = new Date()): Promise<boolean> {
@@ -120,9 +132,8 @@ export async function completePasswordReset(token: string, password: string, now
   // Остальные ссылки из прошлых писем больше не нужны, старые сессии — тоже.
   await store.invalidatePasswordResets(user.id, nowIso)
   await store.deleteUserAuthSessions(user.id)
-  // Аккаунт общий с клиентом: новый пароль в панели завершает и входы в
-  // клиенте. Панель недоступна — пароль на сайте всё равно сменён.
-  await rotatePanelPassword(user.id).catch((error) => console.error('[reset] выход из клиента:', error))
+  // Аккаунт общий с клиентом: сброс завершает и входы в клиенте.
+  await store.revokeUserClientTokens(user.id, nowIso)
 
   const sessionToken = await createUserSession(user.id)
   return { ok: true, user: updated, sessionToken }

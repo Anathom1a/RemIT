@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Разворачивает стек RemIT на чистой Ubuntu 22.04/24.04:
-# сервер идентификации и ретрансляции, панель, сайт с кабинетом, база данных.
+# сервер идентификации и ретрансляции, сайт с кабинетом и API клиента, база данных.
 #
 #   sudo bash server/deploy.sh
 #
@@ -53,7 +53,7 @@ REMIT_BILLING_PROVIDER=yookassa
 YOOKASSA_SHOP_ID=
 YOOKASSA_SECRET_KEY=
 MUST_LOGIN=N
-TOKEN_EXPIRE=720h
+REMIT_CLIENT_TOKEN_TTL=2592000
 ENVEOF
     chmod 600 "$ENV_FILE"
 else
@@ -61,7 +61,7 @@ else
 fi
 
 # ---------- 3. Каталоги данных ----------
-mkdir -p "${SCRIPT_DIR}/data"/{postgres,rustdesk,rustdesk-api,releases,certbot/conf,certbot/www}
+mkdir -p "${SCRIPT_DIR}/data"/{postgres,rustdesk,releases,attachments,certbot/conf,certbot/www}
 # Приложение в контейнере работает под UID 1001 — ему нужно писать сборки.
 chown -R 1001:1001 "${SCRIPT_DIR}/data/releases"
 
@@ -90,6 +90,6 @@ else
 fi
 echo
 echo "  Сайт и кабинет:  https://$(grep '^PUBLIC_DOMAIN=' "$ENV_FILE" | cut -d= -f2)"
-echo "  Панель RustDesk: /_admin/"
+echo "  Админка:         /admin (вход почтой из REMIT_ADMIN_EMAILS)"
 echo "  Настройте TLS (certbot) и проверьте docs/DEPLOY.md."
 echo "============================================================"

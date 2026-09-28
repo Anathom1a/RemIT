@@ -21,14 +21,8 @@ const COMPONENTS = [
   {
     name: 'rustdesk-server (hbbs, hbbr)',
     license: 'AGPL-3.0',
-    role: 'Сервер идентификации и ретрансляции.',
-    url: 'https://github.com/rustdesk/rustdesk-server',
-  },
-  {
-    name: 'lejianwen/rustdesk-api',
-    license: 'AGPL-3.0',
-    role: 'API и веб-панель: учётные записи, адресная книга, журнал подключений.',
-    url: 'https://github.com/lejianwen/rustdesk-api',
+    role: 'Сервер идентификации и ретрансляции. Используем сборку lejianwen/rustdesk-server с проверкой токенов входа.',
+    url: 'https://github.com/lejianwen/rustdesk-server',
   },
 ]
 
