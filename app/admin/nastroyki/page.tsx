@@ -6,6 +6,7 @@ import { getRuntimeSettings } from '@/lib/settings'
 import { POLICY_HINTS, getClientPolicy } from '@/lib/policy'
 import { formatDateTime } from '@/lib/time'
 import { config } from '@/lib/config'
+import { vkRedirectUri } from '@/lib/vk'
 
 export const metadata: Metadata = { title: 'Настройки' }
 export const dynamic = 'force-dynamic'
@@ -19,6 +20,8 @@ export default async function AdminSettingsPage() {
     { term: 'Сервер-ретранслятор', value: config.rustdesk.relayServer },
     { term: 'API-сервер для клиентов', value: config.rustdesk.apiServer },
     { term: 'Подпись токенов клиента (JWT_KEY)', value: config.client.jwtKey ? 'задана' : 'не задана' },
+    { term: 'Вход через VK ID', value: config.vk.clientId ? `включён, приложение ${config.vk.clientId}` : 'выключен (REMIT_VK_CLIENT_ID)' },
+    { term: 'Адрес возврата VK ID', value: vkRedirectUri() },
     { term: 'Часовой пояс тарификации', value: config.quota.timeZone },
     { term: 'Приём оплаты', value: config.billing.provider === 'yookassa' ? 'ЮKassa' : 'вручную по счёту' },
     { term: 'Магазин ЮKassa', value: config.billing.yookassa.shopId || 'не задан' },

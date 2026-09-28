@@ -5,6 +5,10 @@
 если бесплатные 3 часа в сутки израсходованы, клиент получает отказ с
 понятным русским текстом вместо молчаливого таймаута.
 
+В запрос уходит и токен входа из punch hole: по нему сайт узнаёт аккаунт
+того, кто подключается, и проверяет лимит по его тарифу. Проверка стоит до
+блока MUST_LOGIN, потому что там токен забирается из запроса.
+
 Использование:
     python3 hbbs-quota-hook.py path/to/rustdesk-server/src/rendezvous_server.rs
 
@@ -19,11 +23,11 @@ from pathlib import Path
 
 MARKER = "remit_check_quota"
 
-ANCHOR = """        let id = ph.id;
-        // punch hole request from A, relay to B,"""
+ANCHOR = """        // if secret is not empty check token by jwt
+        if MUST_LOGIN.load(Ordering::SeqCst) {"""
 
 CHECK = """        // RemIT: суточный лимит бесплатного использования.
-        if let Some(text) = remit_check_quota(&ph.id).await {
+        if let Some(text) = remit_check_quota(&ph.id, &ph.token).await {
             let mut msg_out = RendezvousMessage::new();
             msg_out.set_punch_hole_response(PunchHoleResponse {
                 other_failure: text,
@@ -44,7 +48,7 @@ HELPER = """
 //
 // Если переменная не задана или служба недоступна, подключения не блокируются:
 // отказ в обслуживании из-за сбоя биллинга хуже, чем неучтённая сессия.
-async fn remit_check_quota(host_id: &str) -> Option<String> {
+async fn remit_check_quota(host_id: &str, login_token: &str) -> Option<String> {
     let url = std::env::var("REMIT_QUOTA_URL").unwrap_or_default();
     if url.is_empty() {
         return None;
@@ -59,7 +63,7 @@ async fn remit_check_quota(host_id: &str) -> Option<String> {
     let response = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", token))
-        .json(&serde_json::json!({ "id": host_id }))
+        .json(&serde_json::json!({ "id": host_id, "token": login_token }))
         .send()
         .await
         .ok()?;

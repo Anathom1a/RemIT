@@ -4,10 +4,12 @@ import { redirect } from 'next/navigation'
 import { AuthForm } from '@/components/auth/auth-form'
 import { Wordmark } from '@/components/brand/logo'
 import { getCurrentUser } from '@/lib/auth'
+import { VkLogin } from '@/components/auth/vk-button'
 
 export const metadata: Metadata = { title: 'Вход' }
 
-export default async function LoginPage() {
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ vk_error?: string }> }) {
+  const { vk_error: vkError } = await searchParams
   if (await getCurrentUser()) redirect('/kabinet')
 
   return (
@@ -22,6 +24,7 @@ export default async function LoginPage() {
           <p className="mt-1.5 text-sm text-text-muted">Подписка, устройства и остаток бесплатного времени.</p>
           <div className="mt-6">
             <AuthForm mode="login" />
+            <VkLogin error={vkError} label="Войти через VK ID" />
           </div>
           <p className="mt-6 text-center text-sm text-text-muted">
             Нет аккаунта?{' '}

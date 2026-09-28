@@ -54,6 +54,7 @@ export async function POST(request: Request) {
     name: name || email.split('@')[0],
     passwordHash: await hashPassword(password),
     role: 'user',
+    status: 'active',
     createdAt: new Date().toISOString(),
   }
   await store.createUser(user)

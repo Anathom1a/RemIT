@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { isServiceRequest } from '@/lib/auth'
-import { checkQuota, closeStaleSessions, resolveSubject } from '@/lib/quota'
+import { userByClientToken } from '@/lib/client-api'
+import { checkQuota, closeStaleSessions, resolveSubject, userSubject } from '@/lib/quota'
 import { getStore } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
@@ -9,7 +10,9 @@ export const dynamic = 'force-dynamic'
  * Предварительная проверка для hbbs: вызывается перед выдачей punch hole.
  * Запрос подписан сервисным токеном (REMIT_SERVICE_TOKEN).
  *
- * Тело: { "peer_id": "<ID управляющего>", "id": "<ID управляемого>" }
+ * Тело: { "id": "<ID управляемого>", "token": "<токен входа управляющего>", "peer_id": "<ID управляющего>" }
+ * Токен входа hbbs берёт из punch hole: по нему видно аккаунт того, кто
+ * подключается, и лимит проверяется по его тарифу.
  * Ответ: { "allowed": true|false, "reason": "...", "message": "текст для клиента" }
  */
 export async function POST(request: Request) {
@@ -34,7 +37,8 @@ export async function POST(request: Request) {
   await closeStaleSessions()
 
   const store = await getStore()
-  const subject = await resolveSubject(store, controllerId, hostId)
+  const account = typeof payload.token === 'string' && payload.token ? await userByClientToken(payload.token) : null
+  const subject = account ? userSubject(account.id) : await resolveSubject(store, controllerId, hostId)
   const decision = await checkQuota(subject)
 
   return NextResponse.json({

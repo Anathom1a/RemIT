@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import {
   AbError,
+  addDevicesToBook,
   addPeer,
   addTag,
   createBook,
@@ -83,6 +84,10 @@ export async function POST(request: Request) {
         await requireBook(user, guid, 3)
         await deletePeers(guid, [String(body.id ?? '')])
         break
+      case 'peers-from-devices': {
+        await requireBook(user, guid, 2)
+        return NextResponse.json({ ok: true, added: await addDevicesToBook(guid, user.id) })
+      }
       case 'tag-add':
         await requireBook(user, guid, 2)
         await addTag(guid, { name: body.name, color: colorFrom(body.color) })

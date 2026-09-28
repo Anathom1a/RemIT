@@ -154,6 +154,26 @@ export default async function DownloadPage() {
             </div>
           </details>
 
+          <div className="card mt-6 flex flex-wrap items-center gap-4 p-5 sm:p-6">
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold">
+                Веб-клиент <span className="pill !py-0.5 !text-[11px]">бета</span>
+              </h2>
+              <p className="mt-1.5 text-sm text-text-secondary">
+                Нельзя ничего устанавливать? Подключитесь из браузера — на любом тарифе. Веб-клиент в бета-тесте:
+                для постоянной работы лучше приложение.
+              </p>
+            </div>
+            <a
+              href="/webclient/"
+              target="_blank"
+              rel="noopener"
+              className="rounded-xl border border-white/12 bg-ink-800/70 px-4 py-2 text-sm text-text-primary hover:border-white/25"
+            >
+              Открыть веб-клиент
+            </a>
+          </div>
+
           {/*
             Ничего настраивать не нужно: адреса серверов и ключ зашиты в сборку,
             а пункт «ID/Relay Server» в клиенте скрыт. Поэтому вместо таблицы с

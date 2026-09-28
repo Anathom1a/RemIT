@@ -151,7 +151,7 @@ export function historyCsv(history: History): string {
 let lastPurge = 0
 
 /**
- * Удаляет журнал подключений и передачи файлов старше срока хранения. Вызывается попутно (из heartbeat),
+ * Удаляет журналы подключений, передачи файлов и тревог старше срока хранения. Вызывается попутно (из heartbeat),
  * не чаще раза в шесть часов на процесс.
  */
 export async function purgeOldHistory(now = new Date()): Promise<number> {
@@ -159,6 +159,10 @@ export async function purgeOldHistory(now = new Date()): Promise<number> {
   lastPurge = now.getTime()
   const store = await getStore()
   const before = new Date(now.getTime() - HISTORY_RETENTION_DAYS * DAY_MS).toISOString()
-  const [sessions, files] = await Promise.all([store.deleteConnSessionsBefore(before), store.deleteFileAuditsBefore(before)])
-  return sessions + files
+  const [sessions, files, alarms] = await Promise.all([
+    store.deleteConnSessionsBefore(before),
+    store.deleteFileAuditsBefore(before),
+    store.deleteAlarmsBefore(before),
+  ])
+  return sessions + files + alarms
 }

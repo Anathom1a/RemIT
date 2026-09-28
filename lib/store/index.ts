@@ -1,4 +1,11 @@
 import type {
+  ClientAlarm,
+  DeviceGroup,
+  OAuthIdentity,
+  OAuthState,
+  Team,
+  TeamMember,
+  WebShare,
   AddressBook,
   ClientToken,
   FileAudit,
@@ -56,6 +63,8 @@ export interface Store {
   revokeUserClientTokens(userId: string, at: string): Promise<number>
   /** Новые сверху. Без userId — все (для админки). */
   listClientTokens(filter: { userId?: string; limit: number }): Promise<ClientToken[]>
+  /** Последний действующий вход с устройства — чтобы узнать аккаунт веб-клиента. */
+  findActiveClientTokenByDevice(deviceId: string, now: string): Promise<ClientToken | null>
 
   /** Адресные книги клиента. */
   findAddressBook(guid: string): Promise<AddressBook | null>
@@ -76,6 +85,55 @@ export interface Store {
   createFileAudit(audit: FileAudit): Promise<void>
   listFileAudits(filter: { hostIds?: string[]; limit: number }): Promise<FileAudit[]>
   deleteFileAuditsBefore(before: string): Promise<number>
+
+  /** Вход через VK ID. */
+  findOAuthIdentity(provider: string, subject: string): Promise<OAuthIdentity | null>
+  listOAuthIdentities(userId: string): Promise<OAuthIdentity[]>
+  saveOAuthIdentity(identity: OAuthIdentity): Promise<void>
+  deleteOAuthIdentity(provider: string, userId: string): Promise<void>
+  saveOAuthState(state: OAuthState): Promise<void>
+  findOAuthState(state: string): Promise<OAuthState | null>
+  deleteOAuthState(state: string): Promise<void>
+  deleteExpiredOAuthStates(now: string): Promise<void>
+
+  /** Команды и группы устройств. */
+  createTeam(team: Team, owner: TeamMember): Promise<void>
+  saveTeam(team: Team): Promise<void>
+  findTeam(id: string): Promise<Team | null>
+  /** Команда, в которой состоит пользователь, и его роль в ней. */
+  findTeamOfUser(userId: string): Promise<{ team: Team; member: TeamMember } | null>
+  listTeams(limit: number): Promise<Team[]>
+  listTeamMembers(teamId: string): Promise<TeamMember[]>
+  /** false — пользователь уже в какой-то команде. */
+  addTeamMember(member: TeamMember): Promise<boolean>
+  removeTeamMember(teamId: string, userId: string): Promise<void>
+  /** Удаляет команду, её группы устройств и снимает группы с устройств. */
+  deleteTeam(id: string): Promise<void>
+  listDeviceGroups(teamId: string): Promise<DeviceGroup[]>
+  findDeviceGroup(id: string): Promise<DeviceGroup | null>
+  saveDeviceGroup(group: DeviceGroup): Promise<void>
+  deleteDeviceGroup(id: string): Promise<void>
+  setDeviceGroup(rustdeskId: string, groupId: string | null): Promise<void>
+
+  /** Тревоги клиента. */
+  createAlarm(alarm: ClientAlarm): Promise<void>
+  listAlarms(filter: { hostIds?: string[]; limit: number }): Promise<ClientAlarm[]>
+  deleteAlarm(id: string): Promise<void>
+  deleteAlarmsBefore(before: string): Promise<number>
+
+  /** Ручная чистка журналов из админки. */
+  deleteFileAudit(id: string): Promise<void>
+  /** Удаляет запись журнала входов; действующие входы не трогает. */
+  deleteClientToken(tokenHash: string, now: string): Promise<boolean>
+  /** Удаляет завершённые и истёкшие входы старше даты. */
+  deleteClientTokensBefore(before: string, now: string): Promise<number>
+
+  /** Ссылки на подключение через веб-клиент. */
+  createWebShare(share: WebShare): Promise<void>
+  findWebShare(token: string): Promise<WebShare | null>
+  listWebSharesByUser(userId: string): Promise<WebShare[]>
+  deleteWebShare(token: string): Promise<void>
+  deleteWebSharesByUser(userId: string): Promise<void>
 
   upsertDevice(device: Device): Promise<void>
   findDeviceByRustdeskId(rustdeskId: string): Promise<Device | null>

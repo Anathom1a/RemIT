@@ -78,7 +78,7 @@ function resetEmail(user: User, link: string): { subject: string; text: string; 
 export async function requestPasswordReset(rawEmail: string, now = new Date()): Promise<void> {
   const store = await getStore()
   const user = await store.findUserByEmail(normalizeEmail(rawEmail))
-  if (!user) return
+  if (!user || user.status !== 'active') return
 
   // Проверка лимита и создание ссылки — по очереди для одного аккаунта: иначе
   // несколько запросов подряд одновременно видят «ещё можно» и шлют лишние письма.
@@ -125,7 +125,7 @@ export async function completePasswordReset(token: string, password: string, now
   }
 
   const user = await store.findUserById(reset.userId)
-  if (!user) return { ok: false, error: 'Аккаунт не найден' }
+  if (!user || user.status !== 'active') return { ok: false, error: 'Аккаунт не найден или заблокирован' }
 
   const updated: User = { ...user, passwordHash: await hashPassword(password) }
   await store.updateUser(updated)

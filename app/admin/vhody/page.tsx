@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { ActionButton } from '@/components/admin/action-button'
+import { PurgeForm } from '@/components/admin/purge-form'
 import { DataTable } from '@/components/ui/data-table'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
@@ -27,11 +28,14 @@ export default async function AdminClientLoginsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Входы в клиенте</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          Последние {tokens.length} входов почтой и паролем в клиенте · действуют сейчас: {active}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Входы в клиенте</h1>
+          <p className="mt-1 text-sm text-text-muted">
+            Последние {tokens.length} входов в клиенте · действуют сейчас: {active}
+          </p>
+        </div>
+        <PurgeForm kind="login" note="действующие входы не удаляются" />
       </div>
 
       <div className="card overflow-hidden">
@@ -77,7 +81,14 @@ export default async function AdminClientLoginsPage() {
                     variant="danger"
                     confirm="Завершить этот вход? Клиент попросит войти заново."
                   />
-                ) : null,
+                ) : (
+                  <ActionButton
+                    endpoint="/api/v1/admin/logs"
+                    body={{ action: 'delete', kind: 'login', id: token.tokenHash }}
+                    label="Удалить запись"
+                    variant="danger"
+                  />
+                ),
             },
           ]}
         />

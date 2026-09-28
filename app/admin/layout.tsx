@@ -14,7 +14,10 @@ const NAV = [
   { href: '/admin/vhody', label: 'Входы в клиенте' },
   { href: '/admin/adresnye-knigi', label: 'Адресные книги' },
   { href: '/admin/fayly', label: 'Передача файлов' },
+  { href: '/admin/trevogi', label: 'Тревоги' },
+  { href: '/admin/komandy', label: 'Команды' },
   { href: '/admin/obnovleniya', label: 'Обновления' },
+  { href: '/admin/server', label: 'Сервер' },
   { href: '/admin/nastroyki', label: 'Настройки' },
 ]
 

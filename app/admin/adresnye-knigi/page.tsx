@@ -4,14 +4,16 @@ import { DataTable } from '@/components/ui/data-table'
 import { RULE_NAMES } from '@/lib/address-book'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
-import type { AbPeer, AddressBook } from '@/lib/types'
+import type { AddressBook } from '@/lib/types'
+import { BookEditor } from '@/components/address-book/book-editor'
+import { JsonForm, inputClass } from '@/components/cabinet/json-form'
 
 export const metadata: Metadata = { title: 'Адресные книги' }
 export const dynamic = 'force-dynamic'
 
 /**
- * Адресные книги всех аккаунтов — только просмотр. Правит их владелец в
- * кабинете или в клиенте.
+ * Адресные книги всех аккаунтов. Администратор правит любую книгу теми же
+ * средствами, что владелец в кабинете.
  */
 export default async function AdminAddressBooksPage({
   searchParams,
@@ -84,34 +86,35 @@ export default async function AdminAddressBooksPage({
         />
       </div>
 
-      {selected && (
-        <div className="card overflow-hidden">
-          <div className="border-b border-white/8 px-6 py-4">
-            <h2 className="font-semibold">
-              {selected.name} · {emails.get(selected.ownerId)}
-            </h2>
-            {selected.tags.length > 0 && (
-              <p className="mt-1 text-xs text-text-muted">Метки: {selected.tags.map((tag) => tag.name).join(', ')}</p>
-            )}
-          </div>
-          <DataTable<AbPeer>
-            rows={selected.peers}
-            getKey={(peer) => peer.id}
-            minWidth={820}
-            empty="В книге нет записей."
-            columns={[
-              { key: 'id', header: 'ID', primary: true, render: (peer) => <span className="font-mono text-xs">{peer.id}</span> },
-              { key: 'alias', header: 'Имя', render: (peer) => peer.alias || '—' },
-              {
-                key: 'device',
-                header: 'Устройство',
-                render: (peer) => [peer.hostname, peer.username, peer.platform].filter(Boolean).join(' · ') || '—',
-              },
-              { key: 'tags', header: 'Метки', render: (peer) => peer.tags.join(', ') || '—' },
-              { key: 'note', header: 'Заметка', render: (peer) => <span className="text-xs">{peer.note || '—'}</span> },
-            ]}
-          />
+      {user && (
+        <div className="card p-6">
+          <h2 className="font-semibold">Новая общая книга для аккаунта</h2>
+          <JsonForm
+            endpoint="/api/v1/admin/address-books"
+            body={{ action: 'create', userId: user }}
+            submitLabel="Создать"
+            reset
+            className="mt-4 flex flex-wrap items-center gap-2"
+          >
+            <input name="name" required maxLength={60} placeholder="Название" className={`${inputClass} w-64`} />
+          </JsonForm>
         </div>
+      )}
+
+      {selected && (
+        <>
+          <h2 className="pt-2 text-xl font-semibold">
+            {selected.name} · {emails.get(selected.ownerId)}
+          </h2>
+          <BookEditor
+            book={selected}
+            rule={3}
+            owner
+            people={emails}
+            endpoint="/api/v1/admin/address-books"
+            devicesLabel="Добавить все устройства владельца"
+          />
+        </>
       )}
     </div>
   )

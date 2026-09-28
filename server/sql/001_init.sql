@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- active | blocked | deleted (удалён по просьбе владельца, данные стёрты).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
 CREATE TABLE IF NOT EXISTS auth_sessions (
     token_hash TEXT PRIMARY KEY,
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -53,6 +56,8 @@ ALTER TABLE devices ADD COLUMN IF NOT EXISTS cpu TEXT NOT NULL DEFAULT '';
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS memory TEXT NOT NULL DEFAULT '';
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS last_ip TEXT NOT NULL DEFAULT '';
 ALTER TABLE devices ADD COLUMN IF NOT EXISTS sysinfo_at TIMESTAMPTZ;
+-- Группа устройств команды.
+ALTER TABLE devices ADD COLUMN IF NOT EXISTS group_id TEXT;
 
 -- Входы в клиенте RemIT. Храним хеш токена; отозванные записи остаются
 -- журналом входов.
@@ -72,6 +77,7 @@ CREATE TABLE IF NOT EXISTS client_tokens (
 
 CREATE INDEX IF NOT EXISTS client_tokens_user_idx ON client_tokens(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS client_tokens_created_idx ON client_tokens(created_at DESC);
+CREATE INDEX IF NOT EXISTS client_tokens_device_idx ON client_tokens(device_id) WHERE revoked_at IS NULL;
 
 -- Адресные книги клиента. Записи, метки и доступы — одним документом:
 -- книга читается и меняется целиком, а размер у неё небольшой.
@@ -249,3 +255,73 @@ CREATE INDEX IF NOT EXISTS support_tickets_status_idx ON support_tickets (status
 -- Схема применяется при каждом старте, поэтому добавленные позже столбцы
 -- дописываем отдельно: CREATE TABLE IF NOT EXISTS уже созданную не тронет.
 ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;
+
+-- Вход через VK ID: какой профиль привязан к какому аккаунту.
+CREATE TABLE IF NOT EXISTS oauth_identities (
+    provider   TEXT NOT NULL,
+    subject    TEXT NOT NULL,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (provider, subject)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS oauth_identities_user_idx ON oauth_identities(provider, user_id);
+
+-- Незавершённые входы через VK ID (живут 10 минут).
+CREATE TABLE IF NOT EXISTS oauth_states (
+    state      TEXT PRIMARY KEY,
+    data       JSONB NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- Команды: сотрудники видят устройства друг друга. Один аккаунт — одна команда.
+CREATE TABLE IF NOT EXISTS teams (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    owner_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+    team_id    TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL DEFAULT 'member',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (team_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS device_groups (
+    id         TEXT PRIMARY KEY,
+    team_id    TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    name       TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS device_groups_team_idx ON device_groups(team_id);
+
+-- Тревоги клиента (/api/audit/alarm).
+CREATE TABLE IF NOT EXISTS client_alarms (
+    id         TEXT PRIMARY KEY,
+    host_id    TEXT NOT NULL,
+    type       INTEGER NOT NULL DEFAULT 0,
+    info       TEXT NOT NULL DEFAULT '',
+    ip         TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS client_alarms_host_idx ON client_alarms(host_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS client_alarms_created_idx ON client_alarms(created_at DESC);
+
+-- Ссылки для гостей на подключение через веб-клиент.
+CREATE TABLE IF NOT EXISTS web_shares (
+    token           TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    peer_id         TEXT NOT NULL,
+    password_type   TEXT NOT NULL DEFAULT 'once',
+    password_secret TEXT NOT NULL,
+    expires_at      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS web_shares_user_idx ON web_shares(user_id, created_at DESC);

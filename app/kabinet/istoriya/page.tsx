@@ -5,7 +5,8 @@ import { DataTable } from '@/components/ui/data-table'
 import { getCurrentUser } from '@/lib/auth'
 import { getHistory, type HistoryRow } from '@/lib/history'
 import { getStore } from '@/lib/store'
-import type { FileAudit } from '@/lib/types'
+import type { ClientAlarm, FileAudit } from '@/lib/types'
+import { alarmDetails, alarmName } from '@/lib/alarms'
 import { PLANS, connectionsWord } from '@/lib/plans'
 import { formatDateTime, humanDuration } from '@/lib/time'
 
@@ -26,6 +27,11 @@ export default async function HistoryPage() {
   const files = devices.length
     ? (await store.listFileAudits({ hostIds: devices.map((device) => device.rustdeskId), limit: 200 })).filter(
         (audit) => audit.createdAt >= history.since,
+      )
+    : []
+  const alarms = devices.length
+    ? (await store.listAlarms({ hostIds: devices.map((device) => device.rustdeskId), limit: 200 })).filter(
+        (alarm) => alarm.createdAt >= history.since,
       )
     : []
   const shown = history.rows.slice(0, PAGE_ROWS)
@@ -157,6 +163,36 @@ export default async function HistoryPage() {
                 </span>
               ),
             },
+          ]}
+        />
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="border-b border-white/8 px-6 py-4">
+          <h2 className="font-semibold">Тревоги · {alarms.length}</h2>
+          <p className="mt-1 text-xs text-text-muted">
+            Подбор пароля и подключения с адресов вне белого списка — если вы их не ждали, смените пароль устройства.
+          </p>
+        </div>
+        <DataTable<ClientAlarm>
+          rows={alarms}
+          getKey={(alarm) => alarm.id}
+          minWidth={720}
+          empty="Тревог не было."
+          columns={[
+            { key: 'at', header: 'Когда', primary: true, render: (alarm) => formatDateTime(alarm.createdAt) },
+            { key: 'type', header: 'Что', render: (alarm) => alarmName(alarm.type) },
+            {
+              key: 'host',
+              header: 'Устройство',
+              render: (alarm) => (
+                <span>
+                  {names.get(alarm.hostId) && <span className="text-text-primary">{names.get(alarm.hostId)} · </span>}
+                  <span className="font-mono text-xs">{alarm.hostId}</span>
+                </span>
+              ),
+            },
+            { key: 'ip', header: 'Откуда', render: (alarm) => <span className="text-xs">{alarm.ip || alarmDetails(alarm.info).ip || '—'}</span> },
           ]}
         />
       </div>

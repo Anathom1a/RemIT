@@ -1,4 +1,6 @@
 import type { Metadata } from 'next'
+import { ActionButton } from '@/components/admin/action-button'
+import { PurgeForm } from '@/components/admin/purge-form'
 import { DataTable } from '@/components/ui/data-table'
 import { getStore } from '@/lib/store'
 import { formatDateTime } from '@/lib/time'
@@ -20,11 +22,14 @@ export default async function AdminFileAuditPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Передача файлов</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          Последние {audits.length} операций из журнала клиентов. Журнал хранится год.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">Передача файлов</h1>
+          <p className="mt-1 text-sm text-text-muted">
+            Последние {audits.length} операций из журнала клиентов. Журнал хранится год.
+          </p>
+        </div>
+        <PurgeForm kind="file" />
       </div>
 
       <div className="card overflow-hidden">
@@ -68,6 +73,14 @@ export default async function AdminFileAuditPage() {
                     </span>
                   )}
                 </span>
+              ),
+            },
+            {
+              key: 'actions',
+              header: 'Действия',
+              actions: true,
+              render: (audit) => (
+                <ActionButton endpoint="/api/v1/admin/logs" body={{ action: 'delete', kind: 'file', id: audit.id }} label="Удалить" variant="danger" />
               ),
             },
           ]}

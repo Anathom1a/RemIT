@@ -75,7 +75,11 @@ export default async function AdminUsersPage({
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="font-semibold">
-                  {user.name}{' '}
+                  {user.name || '—'}{' '}
+                  {user.status === 'blocked' && (
+                    <span className="pill !border-danger/40 !py-0.5 !text-[11px] !text-danger">заблокирован</span>
+                  )}
+                  {user.status === 'deleted' && <span className="pill !py-0.5 !text-[11px]">удалён</span>}{' '}
                   {user.role === 'admin' ? (
                     <span className="pill !py-0.5 !text-[11px]">админ</span>
                   ) : (
@@ -180,6 +184,28 @@ export default async function AdminUsersPage({
                     : `Выдать права администратора ${user.email}?`
                 }
               />
+              {user.status !== 'deleted' && (
+                <ActionButton
+                  endpoint="/api/v1/admin/users"
+                  body={{ userId: user.id, action: user.status === 'blocked' ? 'unblock' : 'block' }}
+                  label={user.status === 'blocked' ? 'Разблокировать' : 'Заблокировать'}
+                  variant={user.status === 'blocked' ? 'secondary' : 'danger'}
+                  confirm={
+                    user.status === 'blocked'
+                      ? `Разблокировать ${user.email}?`
+                      : `Заблокировать ${user.email}? Вход на сайте и в клиенте будет закрыт, текущие входы завершатся.`
+                  }
+                />
+              )}
+              {user.status !== 'deleted' && (
+                <ActionButton
+                  endpoint="/api/v1/admin/users"
+                  body={{ userId: user.id, action: 'delete' }}
+                  label="Удалить аккаунт"
+                  variant="danger"
+                  confirm={`Удалить аккаунт ${user.email}? Почта, имя, адресные книги и привязки будут стёрты безвозвратно. Платежи останутся для учёта.`}
+                />
+              )}
               </div>
             </div>
           </div>

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { config } from './config'
 import { getStore } from './store'
 import { clientIp } from './rate-limit'
+import { touchDevice } from './quota'
 import type { ClientToken, User } from './types'
 
 /**
@@ -111,13 +112,19 @@ export async function authenticateClient(request: Request): Promise<ClientAuth |
   const token = await store.findClientToken(hashToken(raw))
   if (!token || token.revokedAt || new Date(token.expiresAt).getTime() <= now) return null
   const user = await store.findUserById(token.userId)
-  if (!user) return null
+  if (!user || user.status !== 'active') return null
 
   // Время последнего обращения пишем не чаще раза в минуту: клиент ходит часто.
   if (now - new Date(token.lastUsedAt).getTime() > 60_000) {
     await store.touchClientToken(token.tokenHash, new Date(now).toISOString())
   }
   return { user, token }
+}
+
+/** Аккаунт по токену входа — для проверки квоты из hbbs. */
+export async function userByClientToken(raw: string): Promise<User | null> {
+  const auth = await authenticateClient(new Request('http://local/', { headers: { authorization: `Bearer ${raw}` } }))
+  return auth?.user ?? null
 }
 
 export async function revokeClientTokenByRaw(request: Request): Promise<void> {
@@ -178,4 +185,21 @@ export function clientRoute(
 /** Пустой успешный ответ — так отвечала панель на изменения в книге. */
 export function emptyOk(): Response {
   return new Response('', { status: 200 })
+}
+
+/**
+ * Компьютер, с которого вошли, записываем на аккаунт — на нём сразу
+ * действует тариф. Уже привязанный к другому аккаунту не трогаем. Вход из
+ * браузера устройства не даёт.
+ */
+export async function bindLoginDevice(request: Request, userId: string, rustdeskId: string, info: Record<string, unknown>) {
+  if (!rustdeskId || request.headers.get('referer') || info.type === 'browser') return
+  if (!/^[0-9A-Za-z_-]{3,64}$/.test(rustdeskId)) return
+
+  const store = await getStore()
+  const patch: { name?: string; os?: string } = {}
+  if (typeof info.name === 'string' && info.name) patch.name = info.name.slice(0, 100)
+  if (typeof info.os === 'string' && info.os) patch.os = info.os.slice(0, 100)
+  const device = await touchDevice(store, rustdeskId, patch)
+  if (device && !device.userId) await store.setDeviceOwner(rustdeskId, userId)
 }

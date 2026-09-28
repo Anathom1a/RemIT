@@ -73,6 +73,21 @@ export const config = {
     publicKey: env('REMIT_PUBLIC_KEY', ''),
     /** Адрес hbbs внутри сети сервера — для проверки связи из админки. */
     hbbsInternal: env('REMIT_HBBS_INTERNAL', 'rustdesk:21116'),
+    /** Командные порты hbbs и hbbr (нужен свой образ с патчем server-cmd-hook). */
+    hbbsCommand: env('REMIT_HBBS_CMD', 'rustdesk:21115'),
+    hbbrCommand: env('REMIT_HBBR_CMD', 'rustdesk:21117'),
+  },
+
+  /**
+   * Вход через VK ID (OAuth 2.1 с PKCE). Приложение заводится в кабинете
+   * VK ID (id.vk.com/about/business), там же указывается адрес возврата
+   * https://<домен>/api/v1/auth/vk/callback. Пусто — кнопки VK не показываются.
+   */
+  vk: {
+    clientId: env('REMIT_VK_CLIENT_ID'),
+    /** Для проверки без VK можно подменить адрес сервиса. */
+    baseUrl: env('REMIT_VK_BASE_URL', 'https://id.vk.com'),
+    redirectUri: env('REMIT_VK_REDIRECT_URI'),
   },
 
   /** Вход в клиенте RemIT: API клиента RustDesk обслуживает сам сайт. */

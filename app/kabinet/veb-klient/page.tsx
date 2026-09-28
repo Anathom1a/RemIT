@@ -1,0 +1,92 @@
+import type { Metadata } from 'next'
+import { redirect } from 'next/navigation'
+import { ActionButton } from '@/components/admin/action-button'
+import { ShareForm } from '@/components/cabinet/share-form'
+import { getCurrentUser } from '@/lib/auth'
+import { config } from '@/lib/config'
+import { getStore } from '@/lib/store'
+import { formatDateTime } from '@/lib/time'
+import { shareUrl } from '@/lib/webclient'
+
+export const metadata: Metadata = { title: 'Веб-клиент' }
+export const dynamic = 'force-dynamic'
+
+export default async function WebClientPage() {
+  const user = await getCurrentUser()
+  if (!user) redirect('/vhod')
+
+  const store = await getStore()
+  const now = new Date().toISOString()
+  const shares = (await store.listWebSharesByUser(user.id)).filter((share) => !share.expiresAt || share.expiresAt > now)
+  const devices = await store.listDevicesByUser(user.id)
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">
+          Веб-клиент <span className="pill !py-0.5 !text-[11px] align-middle">бета</span>
+        </h1>
+        <p className="mt-1 text-sm text-text-muted">
+          Подключение из браузера, без установки. Доступен на любом тарифе; лимиты тарифа действуют как в приложении.
+        </p>
+      </div>
+
+      <div className="card p-6">
+        <h2 className="font-semibold">Открыть веб-клиент</h2>
+        <p className="mt-1.5 text-sm text-text-secondary">
+          Войдите в нём почтой и паролем от кабинета — появится ваша адресная книга. Веб-клиент в бета-тесте: часть
+          функций приложения ({config.brand.name} для компьютера) в нём пока нет, возможны сбои.
+        </p>
+        <a
+          href="/webclient/"
+          target="_blank"
+          rel="noopener"
+          className="mt-4 inline-flex h-9 items-center rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 px-3.5 text-sm font-medium text-white"
+        >
+          Открыть в новой вкладке
+        </a>
+      </div>
+
+      <div className="card p-6">
+        <h2 className="font-semibold">Ссылка для гостя</h2>
+        <p className="mt-1.5 mb-4 text-sm text-text-secondary">
+          Человек откроет ссылку и сразу подключится к устройству через веб-клиент — без регистрации и установки.
+          Пароль устройства хранится зашифрованным и никому не показывается. Одноразовая ссылка сработает один раз.
+        </p>
+        <ShareForm deviceIds={devices.map((device) => device.rustdeskId)} />
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="border-b border-white/8 px-6 py-4">
+          <h2 className="font-semibold">Действующие ссылки · {shares.length}</h2>
+        </div>
+        {shares.length === 0 ? (
+          <p className="px-6 py-8 text-center text-sm text-text-muted">Ссылок нет.</p>
+        ) : (
+          <ul className="divide-y divide-white/8">
+            {shares.map((share) => (
+              <li key={share.token} className="flex flex-wrap items-center gap-3 px-6 py-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">
+                    <span className="font-mono">{share.peerId}</span>
+                    <span className="ml-2 text-xs text-text-muted">
+                      {share.passwordType === 'once' ? 'одноразовая' : 'многоразовая'} ·{' '}
+                      {share.expiresAt ? `до ${formatDateTime(share.expiresAt)}` : 'бессрочно'}
+                    </span>
+                  </p>
+                  <p className="mt-1 truncate font-mono text-xs text-text-muted">{shareUrl(share.token)}</p>
+                </div>
+                <ActionButton
+                  endpoint="/api/v1/webclient"
+                  body={{ action: 'revoke', token: share.token }}
+                  label="Отозвать"
+                  variant="danger"
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}

@@ -58,7 +58,9 @@ export async function getCurrentUser(): Promise<User | null> {
   const store = await getStore()
   const session = await store.findAuthSession(hashToken(token))
   if (!session) return null
-  return store.findUserById(session.userId)
+  const user = await store.findUserById(session.userId)
+  // Заблокированный или удалённый аккаунт — всё равно что не вошёл.
+  return user?.status === 'active' ? user : null
 }
 
 export function sessionCookieOptions() {

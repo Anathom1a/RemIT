@@ -3,6 +3,14 @@ import path from 'node:path'
 import type { Pool } from 'pg'
 import type { Store } from './index'
 import type {
+  ClientAlarm,
+  DeviceGroup,
+  OAuthIdentity,
+  OAuthState,
+  Team,
+  TeamMember,
+  UserStatus,
+  WebShare,
   AddressBook,
   ClientToken,
   FileAudit,
@@ -52,6 +60,7 @@ export class PostgresStore implements Store {
       name: row.name,
       passwordHash: row.password_hash,
       role: row.role,
+      status: (row.status ?? 'active') as UserStatus,
       createdAt: iso(row.created_at)!,
     }
   }
@@ -70,6 +79,7 @@ export class PostgresStore implements Store {
       memory: row.memory ?? '',
       lastIp: row.last_ip ?? '',
       sysinfoAt: iso(row.sysinfo_at ?? null),
+      groupId: row.group_id ?? null,
       lastSeenAt: iso(row.last_seen_at)!,
       createdAt: iso(row.created_at)!,
     }
@@ -130,9 +140,9 @@ export class PostgresStore implements Store {
 
   async createUser(user: User): Promise<void> {
     await this.query(
-      `INSERT INTO users (id, email, name, password_hash, role, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [user.id, user.email, user.name, user.passwordHash, user.role, user.createdAt],
+      `INSERT INTO users (id, email, name, password_hash, role, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [user.id, user.email, user.name, user.passwordHash, user.role, user.status, user.createdAt],
     )
   }
 
@@ -148,8 +158,8 @@ export class PostgresStore implements Store {
 
   async updateUser(user: User): Promise<void> {
     await this.query(
-      'UPDATE users SET email = $2, name = $3, password_hash = $4, role = $5 WHERE id = $1',
-      [user.id, user.email, user.name, user.passwordHash, user.role],
+      'UPDATE users SET email = $2, name = $3, password_hash = $4, role = $5, status = $6 WHERE id = $1',
+      [user.id, user.email, user.name, user.passwordHash, user.role, user.status],
     )
   }
 
@@ -324,6 +334,15 @@ export class PostgresStore implements Store {
     return rows.map((row) => this.toClientToken(row))
   }
 
+  async findActiveClientTokenByDevice(deviceId: string, now: string): Promise<ClientToken | null> {
+    const rows = await this.query(
+      `SELECT * FROM client_tokens WHERE device_id = $1 AND revoked_at IS NULL AND expires_at > $2
+       ORDER BY created_at DESC LIMIT 1`,
+      [deviceId, now],
+    )
+    return rows[0] ? this.toClientToken(rows[0]) : null
+  }
+
   private toAddressBook(row: Row): AddressBook {
     return {
       guid: row.guid,
@@ -481,11 +500,272 @@ export class PostgresStore implements Store {
     return rows.length
   }
 
+  private toOAuthIdentity(row: Row): OAuthIdentity {
+    return {
+      provider: row.provider,
+      subject: row.subject,
+      userId: row.user_id,
+      name: row.name,
+      createdAt: iso(row.created_at)!,
+    }
+  }
+
+  async findOAuthIdentity(provider: string, subject: string): Promise<OAuthIdentity | null> {
+    const rows = await this.query('SELECT * FROM oauth_identities WHERE provider = $1 AND subject = $2', [
+      provider,
+      subject,
+    ])
+    return rows[0] ? this.toOAuthIdentity(rows[0]) : null
+  }
+
+  async listOAuthIdentities(userId: string): Promise<OAuthIdentity[]> {
+    const rows = await this.query('SELECT * FROM oauth_identities WHERE user_id = $1', [userId])
+    return rows.map((row) => this.toOAuthIdentity(row))
+  }
+
+  async saveOAuthIdentity(identity: OAuthIdentity): Promise<void> {
+    await this.query('DELETE FROM oauth_identities WHERE provider = $1 AND (subject = $2 OR user_id = $3)', [
+      identity.provider,
+      identity.subject,
+      identity.userId,
+    ])
+    await this.query(
+      `INSERT INTO oauth_identities (provider, subject, user_id, name, created_at) VALUES ($1, $2, $3, $4, $5)`,
+      [identity.provider, identity.subject, identity.userId, identity.name, identity.createdAt],
+    )
+  }
+
+  async deleteOAuthIdentity(provider: string, userId: string): Promise<void> {
+    await this.query('DELETE FROM oauth_identities WHERE provider = $1 AND user_id = $2', [provider, userId])
+  }
+
+  async saveOAuthState(state: OAuthState): Promise<void> {
+    await this.query(
+      `INSERT INTO oauth_states (state, data, expires_at) VALUES ($1, $2, $3)
+       ON CONFLICT (state) DO UPDATE SET data = EXCLUDED.data, expires_at = EXCLUDED.expires_at`,
+      [state.state, JSON.stringify(state), state.expiresAt],
+    )
+  }
+
+  async findOAuthState(state: string): Promise<OAuthState | null> {
+    const rows = await this.query('SELECT data FROM oauth_states WHERE state = $1', [state])
+    return rows[0] ? (rows[0].data as OAuthState) : null
+  }
+
+  async deleteOAuthState(state: string): Promise<void> {
+    await this.query('DELETE FROM oauth_states WHERE state = $1', [state])
+  }
+
+  async deleteExpiredOAuthStates(now: string): Promise<void> {
+    await this.query('DELETE FROM oauth_states WHERE expires_at <= $1', [now])
+  }
+
+  private toTeam(row: Row): Team {
+    return { id: row.id, name: row.name, ownerId: row.owner_id, createdAt: iso(row.created_at)! }
+  }
+
+  private toTeamMember(row: Row): TeamMember {
+    return { teamId: row.team_id, userId: row.user_id, role: row.role, createdAt: iso(row.created_at)! }
+  }
+
+  async createTeam(team: Team, owner: TeamMember): Promise<void> {
+    await this.query('INSERT INTO teams (id, name, owner_id, created_at) VALUES ($1, $2, $3, $4)', [
+      team.id,
+      team.name,
+      team.ownerId,
+      team.createdAt,
+    ])
+    await this.query('INSERT INTO team_members (team_id, user_id, role, created_at) VALUES ($1, $2, $3, $4)', [
+      owner.teamId,
+      owner.userId,
+      owner.role,
+      owner.createdAt,
+    ])
+  }
+
+  async saveTeam(team: Team): Promise<void> {
+    await this.query('UPDATE teams SET name = $2, owner_id = $3 WHERE id = $1', [team.id, team.name, team.ownerId])
+  }
+
+  async findTeam(id: string): Promise<Team | null> {
+    const rows = await this.query('SELECT * FROM teams WHERE id = $1', [id])
+    return rows[0] ? this.toTeam(rows[0]) : null
+  }
+
+  async findTeamOfUser(userId: string): Promise<{ team: Team; member: TeamMember } | null> {
+    const rows = await this.query(
+      `SELECT t.*, m.role AS member_role, m.created_at AS member_created_at
+       FROM team_members m JOIN teams t ON t.id = m.team_id WHERE m.user_id = $1`,
+      [userId],
+    )
+    if (!rows[0]) return null
+    return {
+      team: this.toTeam(rows[0]),
+      member: { teamId: rows[0].id, userId, role: rows[0].member_role, createdAt: iso(rows[0].member_created_at)! },
+    }
+  }
+
+  async listTeams(limit: number): Promise<Team[]> {
+    const rows = await this.query('SELECT * FROM teams ORDER BY created_at DESC LIMIT $1', [limit])
+    return rows.map((row) => this.toTeam(row))
+  }
+
+  async listTeamMembers(teamId: string): Promise<TeamMember[]> {
+    const rows = await this.query(
+      `SELECT * FROM team_members WHERE team_id = $1 ORDER BY (role = 'owner') DESC, created_at`,
+      [teamId],
+    )
+    return rows.map((row) => this.toTeamMember(row))
+  }
+
+  async addTeamMember(member: TeamMember): Promise<boolean> {
+    const rows = await this.query(
+      `INSERT INTO team_members (team_id, user_id, role, created_at) VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING RETURNING user_id`,
+      [member.teamId, member.userId, member.role, member.createdAt],
+    )
+    return rows.length > 0
+  }
+
+  async removeTeamMember(teamId: string, userId: string): Promise<void> {
+    await this.query('DELETE FROM team_members WHERE team_id = $1 AND user_id = $2', [teamId, userId])
+  }
+
+  async deleteTeam(id: string): Promise<void> {
+    await this.query('UPDATE devices SET group_id = NULL WHERE group_id IN (SELECT id FROM device_groups WHERE team_id = $1)', [id])
+    await this.query('DELETE FROM teams WHERE id = $1', [id])
+  }
+
+  private toDeviceGroup(row: Row): DeviceGroup {
+    return { id: row.id, teamId: row.team_id, name: row.name, createdAt: iso(row.created_at)! }
+  }
+
+  async listDeviceGroups(teamId: string): Promise<DeviceGroup[]> {
+    const rows = await this.query('SELECT * FROM device_groups WHERE team_id = $1 ORDER BY name', [teamId])
+    return rows.map((row) => this.toDeviceGroup(row))
+  }
+
+  async findDeviceGroup(id: string): Promise<DeviceGroup | null> {
+    const rows = await this.query('SELECT * FROM device_groups WHERE id = $1', [id])
+    return rows[0] ? this.toDeviceGroup(rows[0]) : null
+  }
+
+  async saveDeviceGroup(group: DeviceGroup): Promise<void> {
+    await this.query(
+      `INSERT INTO device_groups (id, team_id, name, created_at) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name`,
+      [group.id, group.teamId, group.name, group.createdAt],
+    )
+  }
+
+  async deleteDeviceGroup(id: string): Promise<void> {
+    await this.query('UPDATE devices SET group_id = NULL WHERE group_id = $1', [id])
+    await this.query('DELETE FROM device_groups WHERE id = $1', [id])
+  }
+
+  async setDeviceGroup(rustdeskId: string, groupId: string | null): Promise<void> {
+    await this.query('UPDATE devices SET group_id = $2 WHERE rustdesk_id = $1', [rustdeskId, groupId])
+  }
+
+  private toAlarm(row: Row): ClientAlarm {
+    return { id: row.id, hostId: row.host_id, type: row.type, info: row.info, ip: row.ip, createdAt: iso(row.created_at)! }
+  }
+
+  async createAlarm(alarm: ClientAlarm): Promise<void> {
+    await this.query('INSERT INTO client_alarms (id, host_id, type, info, ip, created_at) VALUES ($1, $2, $3, $4, $5, $6)', [
+      alarm.id,
+      alarm.hostId,
+      alarm.type,
+      alarm.info,
+      alarm.ip,
+      alarm.createdAt,
+    ])
+  }
+
+  async listAlarms(filter: { hostIds?: string[]; limit: number }): Promise<ClientAlarm[]> {
+    const rows = filter.hostIds
+      ? await this.query('SELECT * FROM client_alarms WHERE host_id = ANY($1) ORDER BY created_at DESC LIMIT $2', [
+          filter.hostIds,
+          filter.limit,
+        ])
+      : await this.query('SELECT * FROM client_alarms ORDER BY created_at DESC LIMIT $1', [filter.limit])
+    return rows.map((row) => this.toAlarm(row))
+  }
+
+  async deleteAlarm(id: string): Promise<void> {
+    await this.query('DELETE FROM client_alarms WHERE id = $1', [id])
+  }
+
+  async deleteAlarmsBefore(before: string): Promise<number> {
+    const rows = await this.query('DELETE FROM client_alarms WHERE created_at < $1 RETURNING id', [before])
+    return rows.length
+  }
+
+  async deleteFileAudit(id: string): Promise<void> {
+    await this.query('DELETE FROM file_audits WHERE id = $1', [id])
+  }
+
+  async deleteClientToken(tokenHash: string, now: string): Promise<boolean> {
+    const rows = await this.query(
+      `DELETE FROM client_tokens WHERE token_hash = $1 AND (revoked_at IS NOT NULL OR expires_at <= $2)
+       RETURNING token_hash`,
+      [tokenHash, now],
+    )
+    return rows.length > 0
+  }
+
+  async deleteClientTokensBefore(before: string, now: string): Promise<number> {
+    const rows = await this.query(
+      `DELETE FROM client_tokens WHERE created_at < $1 AND (revoked_at IS NOT NULL OR expires_at <= $2)
+       RETURNING token_hash`,
+      [before, now],
+    )
+    return rows.length
+  }
+
+  private toWebShare(row: Row): WebShare {
+    return {
+      token: row.token,
+      userId: row.user_id,
+      peerId: row.peer_id,
+      passwordType: row.password_type === 'fixed' ? 'fixed' : 'once',
+      passwordSecret: row.password_secret,
+      expiresAt: iso(row.expires_at ?? null),
+      createdAt: iso(row.created_at)!,
+    }
+  }
+
+  async createWebShare(share: WebShare): Promise<void> {
+    await this.query(
+      `INSERT INTO web_shares (token, user_id, peer_id, password_type, password_secret, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [share.token, share.userId, share.peerId, share.passwordType, share.passwordSecret, share.expiresAt, share.createdAt],
+    )
+  }
+
+  async findWebShare(token: string): Promise<WebShare | null> {
+    const rows = await this.query('SELECT * FROM web_shares WHERE token = $1', [token])
+    return rows[0] ? this.toWebShare(rows[0]) : null
+  }
+
+  async listWebSharesByUser(userId: string): Promise<WebShare[]> {
+    const rows = await this.query('SELECT * FROM web_shares WHERE user_id = $1 ORDER BY created_at DESC', [userId])
+    return rows.map((row) => this.toWebShare(row))
+  }
+
+  async deleteWebShare(token: string): Promise<void> {
+    await this.query('DELETE FROM web_shares WHERE token = $1', [token])
+  }
+
+  async deleteWebSharesByUser(userId: string): Promise<void> {
+    await this.query('DELETE FROM web_shares WHERE user_id = $1', [userId])
+  }
+
   async upsertDevice(device: Device): Promise<void> {
     await this.query(
       `INSERT INTO devices (id, user_id, rustdesk_id, uuid, name, os, version, os_username, cpu, memory, last_ip,
-                            sysinfo_at, last_seen_at, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                            sysinfo_at, last_seen_at, created_at, group_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        ON CONFLICT (rustdesk_id) DO UPDATE SET
          uuid = COALESCE(NULLIF(EXCLUDED.uuid, ''), devices.uuid),
          name = COALESCE(NULLIF(EXCLUDED.name, ''), devices.name),
@@ -513,6 +793,7 @@ export class PostgresStore implements Store {
         device.sysinfoAt,
         device.lastSeenAt,
         device.createdAt,
+        device.groupId,
       ],
     )
   }

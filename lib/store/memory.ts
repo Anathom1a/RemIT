@@ -2,6 +2,13 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import type { Store } from './index'
 import type {
+  ClientAlarm,
+  DeviceGroup,
+  OAuthIdentity,
+  OAuthState,
+  Team,
+  TeamMember,
+  WebShare,
   AddressBook,
   ClientToken,
   FileAudit,
@@ -25,6 +32,13 @@ interface Snapshot {
   clientTokens: ClientToken[]
   addressBooks: AddressBook[]
   fileAudits: FileAudit[]
+  oauthIdentities: OAuthIdentity[]
+  oauthStates: OAuthState[]
+  teams: Team[]
+  teamMembers: TeamMember[]
+  deviceGroups: DeviceGroup[]
+  alarms: ClientAlarm[]
+  webShares: WebShare[]
   devices: Device[]
   subscriptions: Subscription[]
   payments: Payment[]
@@ -53,6 +67,13 @@ export class MemoryStore implements Store {
   private clientTokens = new Map<string, ClientToken>()
   private addressBooks = new Map<string, AddressBook>()
   private fileAudits: FileAudit[] = []
+  private oauthIdentities: OAuthIdentity[] = []
+  private oauthStates = new Map<string, OAuthState>()
+  private teams = new Map<string, Team>()
+  private teamMembers: TeamMember[] = []
+  private deviceGroups = new Map<string, DeviceGroup>()
+  private alarms: ClientAlarm[] = []
+  private webShares = new Map<string, WebShare>()
   private devices = new Map<string, Device>()
   private subscriptions = new Map<string, Subscription>()
   private payments = new Map<string, Payment>()
@@ -89,6 +110,13 @@ export class MemoryStore implements Store {
       this.clientTokens = new Map(snapshot.clientTokens?.map((t) => [t.tokenHash, t]))
       this.addressBooks = new Map(snapshot.addressBooks?.map((b) => [b.guid, b]))
       this.fileAudits = snapshot.fileAudits ?? []
+      this.oauthIdentities = snapshot.oauthIdentities ?? []
+      this.oauthStates = new Map(snapshot.oauthStates?.map((s) => [s.state, s]))
+      this.teams = new Map(snapshot.teams?.map((t) => [t.id, t]))
+      this.teamMembers = snapshot.teamMembers ?? []
+      this.deviceGroups = new Map(snapshot.deviceGroups?.map((g) => [g.id, g]))
+      this.alarms = snapshot.alarms ?? []
+      this.webShares = new Map(snapshot.webShares?.map((w) => [w.token, w]))
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
       this.subscriptions = new Map(snapshot.subscriptions?.map((s) => [s.id, s]))
       // kind, fromPlan и upgradeUntil появились позже: у старых записей их нет.
@@ -121,6 +149,13 @@ export class MemoryStore implements Store {
       clientTokens: [...this.clientTokens.values()],
       addressBooks: [...this.addressBooks.values()],
       fileAudits: this.fileAudits,
+      oauthIdentities: this.oauthIdentities,
+      oauthStates: [...this.oauthStates.values()],
+      teams: [...this.teams.values()],
+      teamMembers: this.teamMembers,
+      deviceGroups: [...this.deviceGroups.values()],
+      alarms: this.alarms,
+      webShares: [...this.webShares.values()],
       devices: [...this.devices.values()],
       subscriptions: [...this.subscriptions.values()],
       payments: [...this.payments.values()],
@@ -290,6 +325,15 @@ export class MemoryStore implements Store {
       .slice(0, filter.limit)
   }
 
+  async findActiveClientTokenByDevice(deviceId: string, now: string): Promise<ClientToken | null> {
+    await this.sync()
+    return (
+      [...this.clientTokens.values()]
+        .filter((t) => t.deviceId === deviceId && !t.revokedAt && t.expiresAt > now)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+    )
+  }
+
   async findAddressBook(guid: string): Promise<AddressBook | null> {
     await this.sync()
     return this.addressBooks.get(guid) ?? null
@@ -369,6 +413,249 @@ export class MemoryStore implements Store {
       await this.persist()
     }
     return removed
+  }
+
+  async findOAuthIdentity(provider: string, subject: string): Promise<OAuthIdentity | null> {
+    await this.sync()
+    return this.oauthIdentities.find((i) => i.provider === provider && i.subject === subject) ?? null
+  }
+
+  async listOAuthIdentities(userId: string): Promise<OAuthIdentity[]> {
+    await this.sync()
+    return this.oauthIdentities.filter((i) => i.userId === userId)
+  }
+
+  async saveOAuthIdentity(identity: OAuthIdentity): Promise<void> {
+    await this.sync()
+    this.oauthIdentities = this.oauthIdentities.filter(
+      (i) =>
+        !(i.provider === identity.provider && (i.subject === identity.subject || i.userId === identity.userId)),
+    )
+    this.oauthIdentities.push(identity)
+    await this.persist()
+  }
+
+  async deleteOAuthIdentity(provider: string, userId: string): Promise<void> {
+    await this.sync()
+    this.oauthIdentities = this.oauthIdentities.filter((i) => !(i.provider === provider && i.userId === userId))
+    await this.persist()
+  }
+
+  async saveOAuthState(state: OAuthState): Promise<void> {
+    await this.sync()
+    this.oauthStates.set(state.state, state)
+    await this.persist()
+  }
+
+  async findOAuthState(state: string): Promise<OAuthState | null> {
+    await this.sync()
+    return this.oauthStates.get(state) ?? null
+  }
+
+  async deleteOAuthState(state: string): Promise<void> {
+    await this.sync()
+    this.oauthStates.delete(state)
+    await this.persist()
+  }
+
+  async deleteExpiredOAuthStates(now: string): Promise<void> {
+    await this.sync()
+    let changed = false
+    for (const [key, state] of this.oauthStates) {
+      if (state.expiresAt <= now) {
+        this.oauthStates.delete(key)
+        changed = true
+      }
+    }
+    if (changed) await this.persist()
+  }
+
+  async createTeam(team: Team, owner: TeamMember): Promise<void> {
+    await this.sync()
+    this.teams.set(team.id, team)
+    this.teamMembers.push(owner)
+    await this.persist()
+  }
+
+  async saveTeam(team: Team): Promise<void> {
+    await this.sync()
+    this.teams.set(team.id, team)
+    await this.persist()
+  }
+
+  async findTeam(id: string): Promise<Team | null> {
+    await this.sync()
+    return this.teams.get(id) ?? null
+  }
+
+  async findTeamOfUser(userId: string): Promise<{ team: Team; member: TeamMember } | null> {
+    await this.sync()
+    const member = this.teamMembers.find((m) => m.userId === userId)
+    const team = member ? this.teams.get(member.teamId) : undefined
+    return member && team ? { team, member } : null
+  }
+
+  async listTeams(limit: number): Promise<Team[]> {
+    await this.sync()
+    return [...this.teams.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit)
+  }
+
+  async listTeamMembers(teamId: string): Promise<TeamMember[]> {
+    await this.sync()
+    return this.teamMembers
+      .filter((m) => m.teamId === teamId)
+      .sort((a, b) => (a.role === b.role ? a.createdAt.localeCompare(b.createdAt) : a.role === 'owner' ? -1 : 1))
+  }
+
+  async addTeamMember(member: TeamMember): Promise<boolean> {
+    await this.sync()
+    if (this.teamMembers.some((m) => m.userId === member.userId)) return false
+    this.teamMembers.push(member)
+    await this.persist()
+    return true
+  }
+
+  async removeTeamMember(teamId: string, userId: string): Promise<void> {
+    await this.sync()
+    this.teamMembers = this.teamMembers.filter((m) => !(m.teamId === teamId && m.userId === userId))
+    await this.persist()
+  }
+
+  async deleteTeam(id: string): Promise<void> {
+    await this.sync()
+    const groups = new Set([...this.deviceGroups.values()].filter((g) => g.teamId === id).map((g) => g.id))
+    for (const [key, device] of this.devices) {
+      if (device.groupId && groups.has(device.groupId)) this.devices.set(key, { ...device, groupId: null })
+    }
+    for (const groupId of groups) this.deviceGroups.delete(groupId)
+    this.teamMembers = this.teamMembers.filter((m) => m.teamId !== id)
+    this.teams.delete(id)
+    await this.persist()
+  }
+
+  async listDeviceGroups(teamId: string): Promise<DeviceGroup[]> {
+    await this.sync()
+    return [...this.deviceGroups.values()]
+      .filter((g) => g.teamId === teamId)
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  }
+
+  async findDeviceGroup(id: string): Promise<DeviceGroup | null> {
+    await this.sync()
+    return this.deviceGroups.get(id) ?? null
+  }
+
+  async saveDeviceGroup(group: DeviceGroup): Promise<void> {
+    await this.sync()
+    this.deviceGroups.set(group.id, group)
+    await this.persist()
+  }
+
+  async deleteDeviceGroup(id: string): Promise<void> {
+    await this.sync()
+    this.deviceGroups.delete(id)
+    for (const [key, device] of this.devices) {
+      if (device.groupId === id) this.devices.set(key, { ...device, groupId: null })
+    }
+    await this.persist()
+  }
+
+  async setDeviceGroup(rustdeskId: string, groupId: string | null): Promise<void> {
+    await this.sync()
+    const device = this.devices.get(rustdeskId)
+    if (!device) return
+    this.devices.set(rustdeskId, { ...device, groupId })
+    await this.persist()
+  }
+
+  async createAlarm(alarm: ClientAlarm): Promise<void> {
+    await this.sync()
+    this.alarms.push(alarm)
+    await this.persist()
+  }
+
+  async listAlarms(filter: { hostIds?: string[]; limit: number }): Promise<ClientAlarm[]> {
+    await this.sync()
+    const hosts = filter.hostIds ? new Set(filter.hostIds) : null
+    return this.alarms
+      .filter((a) => !hosts || hosts.has(a.hostId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, filter.limit)
+  }
+
+  async deleteAlarm(id: string): Promise<void> {
+    await this.sync()
+    this.alarms = this.alarms.filter((a) => a.id !== id)
+    await this.persist()
+  }
+
+  async deleteAlarmsBefore(before: string): Promise<number> {
+    await this.sync()
+    const kept = this.alarms.filter((a) => a.createdAt >= before)
+    const removed = this.alarms.length - kept.length
+    if (removed) {
+      this.alarms = kept
+      await this.persist()
+    }
+    return removed
+  }
+
+  async deleteFileAudit(id: string): Promise<void> {
+    await this.sync()
+    this.fileAudits = this.fileAudits.filter((a) => a.id !== id)
+    await this.persist()
+  }
+
+  async deleteClientToken(tokenHash: string, now: string): Promise<boolean> {
+    await this.sync()
+    const token = this.clientTokens.get(tokenHash)
+    if (!token || (!token.revokedAt && token.expiresAt > now)) return false
+    this.clientTokens.delete(tokenHash)
+    await this.persist()
+    return true
+  }
+
+  async deleteClientTokensBefore(before: string, now: string): Promise<number> {
+    await this.sync()
+    let removed = 0
+    for (const [key, token] of this.clientTokens) {
+      if (token.createdAt < before && (token.revokedAt || token.expiresAt <= now)) {
+        this.clientTokens.delete(key)
+        removed += 1
+      }
+    }
+    if (removed) await this.persist()
+    return removed
+  }
+
+  async createWebShare(share: WebShare): Promise<void> {
+    await this.sync()
+    this.webShares.set(share.token, share)
+    await this.persist()
+  }
+
+  async findWebShare(token: string): Promise<WebShare | null> {
+    await this.sync()
+    return this.webShares.get(token) ?? null
+  }
+
+  async listWebSharesByUser(userId: string): Promise<WebShare[]> {
+    await this.sync()
+    return [...this.webShares.values()]
+      .filter((w) => w.userId === userId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  }
+
+  async deleteWebShare(token: string): Promise<void> {
+    await this.sync()
+    this.webShares.delete(token)
+    await this.persist()
+  }
+
+  async deleteWebSharesByUser(userId: string): Promise<void> {
+    await this.sync()
+    for (const [key, share] of this.webShares) if (share.userId === userId) this.webShares.delete(key)
+    await this.persist()
   }
 
   async upsertDevice(device: Device): Promise<void> {

@@ -6,6 +6,98 @@ export interface User {
   name: string
   passwordHash: string
   role: 'user' | 'admin'
+  /**
+   * blocked — вход на сайте и в клиенте запрещён; deleted — аккаунт удалён
+   * по просьбе владельца: личные данные стёрты, платежи остаются для учёта.
+   */
+  status: UserStatus
+  createdAt: string
+}
+
+export type UserStatus = 'active' | 'blocked' | 'deleted'
+
+/** Вход через внешний сервис (VK ID), привязанный к аккаунту. */
+export interface OAuthIdentity {
+  provider: 'vk'
+  /** Идентификатор пользователя у провайдера. */
+  subject: string
+  userId: string
+  /** Имя из профиля провайдера — чтобы показать, какой профиль привязан. */
+  name: string
+  createdAt: string
+}
+
+/**
+ * Незавершённый вход через VK ID: от перехода на id.vk.com до возврата.
+ * Для входа в клиенте здесь же ждёт результат, который клиент опрашивает.
+ */
+export interface OAuthState {
+  state: string
+  action: 'site-login' | 'site-link' | 'client'
+  codeVerifier: string
+  /** Для привязки — чей аккаунт; для входа — кто вошёл (когда вход завершён). */
+  userId: string | null
+  /** Устройство клиента, для которого идёт вход. */
+  device: { id: string; uuid: string; name: string; os: string; type: string } | null
+  /** Куда вернуть после входа на сайте. */
+  returnTo: string
+  error: string
+  createdAt: string
+  expiresAt: string
+}
+
+/**
+ * Команда: сотрудники видят устройства друг друга во вкладке «Доступные
+ * устройства» клиента. Один аккаунт — не больше одной команды.
+ */
+export interface Team {
+  id: string
+  name: string
+  ownerId: string
+  createdAt: string
+}
+
+export interface TeamMember {
+  teamId: string
+  userId: string
+  /** invited — приглашён, но ещё не принял: устройства друг друга не видны. */
+  role: 'owner' | 'member' | 'invited'
+  createdAt: string
+}
+
+/** Группа устройств команды — так клиент группирует «Доступные устройства». */
+export interface DeviceGroup {
+  id: string
+  teamId: string
+  name: string
+  createdAt: string
+}
+
+/** Тревога клиента: подключение с адреса вне белого списка и т. п. (/api/audit/alarm). */
+export interface ClientAlarm {
+  id: string
+  hostId: string
+  /** Тип из клиента RustDesk (AlarmAuditType). */
+  type: number
+  /** Подробности, как их прислал клиент (JSON-строка). */
+  info: string
+  ip: string
+  createdAt: string
+}
+
+/**
+ * Ссылка на подключение через веб-клиент для гостя. Пароль устройства
+ * хранится зашифрованным и отдаётся только по этой ссылке, пока она жива.
+ */
+export interface WebShare {
+  token: string
+  userId: string
+  peerId: string
+  /** once — одноразовый пароль устройства, fixed — постоянный. */
+  passwordType: 'once' | 'fixed'
+  passwordSecret: string
+  /** null — бессрочно. */
+  expiresAt: string | null
   createdAt: string
 }
 
@@ -46,6 +138,8 @@ export interface Device {
   lastIp: string
   /** Когда клиент последний раз прислал сведения о системе; null — ещё не присылал. */
   sysinfoAt: string | null
+  /** Группа устройств команды; null — без группы. */
+  groupId: string | null
   lastSeenAt: string
   createdAt: string
 }

@@ -24,6 +24,12 @@ const COMPONENTS = [
     role: 'Сервер идентификации и ретрансляции. Используем сборку lejianwen/rustdesk-server с проверкой токенов входа.',
     url: 'https://github.com/lejianwen/rustdesk-server',
   },
+  {
+    name: 'Веб-клиент RustDesk (бета)',
+    license: 'AGPL-3.0',
+    role: 'Подключение из браузера. Сборка из lejianwen/rustdesk-api; мы отключили в ней аналитику Firebase и загрузку шрифтов напрямую из Google, добавили отметку «бета».',
+    url: 'https://github.com/lejianwen/rustdesk-api/tree/master/resources/web',
+  },
 ]
 
 export default function LicensesPage() {

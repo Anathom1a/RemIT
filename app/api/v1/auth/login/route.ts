@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createUserSession, normalizeEmail, sessionCookieOptions } from '@/lib/auth'
+import { BLOCKED_MESSAGE } from '@/lib/accounts'
 import { checkCredentials, clearLoginFailures, loginBlocked, recordLoginFailure } from '@/lib/login-guard'
 
 export const dynamic = 'force-dynamic'
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
   const blocked = loginBlocked(request, email)
   if (blocked) return NextResponse.json(blocked.body, { status: 429, headers: blocked.headers })
 
-  const { user, valid } = await checkCredentials(email, password)
+  const { user, valid, blocked: isBlocked } = await checkCredentials(email, password)
+  if (isBlocked) return NextResponse.json({ error: BLOCKED_MESSAGE }, { status: 403 })
 
   // Одинаковый ответ на «нет пользователя» и «неверный пароль» — не подсказываем перебором.
   if (!user || !valid) {

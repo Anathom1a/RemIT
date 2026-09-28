@@ -84,6 +84,9 @@ echo "==> Встраиваю проверку суточного лимита в
 python3 "${REPO_ROOT}/client/patches/hbbs-quota-hook.py" \
     "${WORKDIR}/rustdesk-server/src/rendezvous_server.rs"
 
+echo "==> Открываю команды hbbs/hbbr для админки сайта"
+python3 "${REPO_ROOT}/client/patches/server-cmd-hook.py" "${WORKDIR}/rustdesk-server/src"
+
 # Компилятор — в официальном образе, чтобы на сервере не заводить Rust.
 # Контейнер работает под root: сборке нужен
 # apt-get (musl-tools), поэтому владельца файлов возвращаем в конце.

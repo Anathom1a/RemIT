@@ -3,6 +3,8 @@ import { denyIfNotAdmin } from '@/lib/admin'
 import { getStore } from '@/lib/store'
 import { getPlan } from '@/lib/plans'
 import { RESET_TTL_MS, createResetLink } from '@/lib/password-reset'
+import { AccountError, deleteAccount, setBlocked } from '@/lib/accounts'
+import { getCurrentUser } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,6 +62,22 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
     const link = await createResetLink(user.id)
     return NextResponse.json({ ok: true, link, expiresInMinutes: RESET_TTL_MS / 60000 })
+  }
+
+  // Блокировка, разблокировка и удаление аккаунта.
+  if (payload.action === 'block' || payload.action === 'unblock' || payload.action === 'delete') {
+    const admin = await getCurrentUser()
+    if (admin && admin.id === userId) {
+      return NextResponse.json({ error: 'Нельзя заблокировать или удалить собственный аккаунт' }, { status: 400 })
+    }
+    try {
+      if (payload.action === 'delete') await deleteAccount(userId)
+      else await setBlocked(userId, payload.action === 'block')
+      return NextResponse.json({ ok: true })
+    } catch (error) {
+      if (error instanceof AccountError) return NextResponse.json({ error: error.message }, { status: error.status })
+      throw error
+    }
   }
 
   // Выход из клиента: один вход (token — хеш) или все входы пользователя.

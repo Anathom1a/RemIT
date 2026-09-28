@@ -52,13 +52,19 @@ function getDummyHash(): Promise<string> {
   return dummyHash
 }
 
-/** Пользователь, если почта и пароль верные; иначе null. Время ответа одинаковое. */
+/**
+ * Пользователь, если почта и пароль верные; иначе null. Время ответа одинаковое.
+ * blocked — пароль верный, но аккаунт заблокирован: об этом говорим только
+ * тому, кто знает пароль.
+ */
 export async function checkCredentials(
   email: string,
   password: string,
-): Promise<{ user: User | null; valid: boolean }> {
+): Promise<{ user: User | null; valid: boolean; blocked: boolean }> {
   const store = await getStore()
-  const user = await store.findUserByEmail(normalizeEmail(email))
-  const valid = await verifyPassword(password, user?.passwordHash ?? (await getDummyHash()))
-  return { user, valid: Boolean(user) && valid }
+  const found = await store.findUserByEmail(normalizeEmail(email))
+  const user = found && found.status !== 'deleted' ? found : null
+  const valid = await verifyPassword(password, user?.passwordHash || (await getDummyHash()))
+  const ok = Boolean(user) && valid
+  return { user, valid: ok && user!.status === 'active', blocked: ok && user!.status === 'blocked' }
 }

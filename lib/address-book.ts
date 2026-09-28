@@ -345,37 +345,82 @@ export async function createBook(user: User, name: unknown): Promise<AddressBook
   return book
 }
 
-export async function renameBook(user: User, guid: string, name: unknown): Promise<void> {
+async function requireOwnedBook(user: User, guid: string, message: string): Promise<AddressBook> {
   const book = await requireBook(user, guid, 3)
-  if (book.ownerId !== user.id) throw new AbError('Переименовать книгу может только владелец', 403)
+  if (book.ownerId !== user.id) throw new AbError(message, 403)
+  return book
+}
+
+export async function renameBook(user: User, guid: string, name: unknown): Promise<void> {
+  await requireOwnedBook(user, guid, 'Переименовать книгу может только владелец')
+  await renameBookByGuid(guid, name)
+}
+
+export async function deleteBook(user: User, guid: string): Promise<void> {
+  await requireOwnedBook(user, guid, 'Удалить книгу может только владелец')
+  await deleteBookByGuid(guid)
+}
+
+/** Выдаёт доступ аккаунту по почте; rule 0 — забирает. */
+export async function shareBook(user: User, guid: string, email: string, rule: number): Promise<void> {
+  await requireOwnedBook(user, guid, 'Доступом управляет только владелец')
+  await setBookShare(guid, email, rule)
+}
+
+// Без проверки прав — для админки и для обёрток выше.
+
+export async function renameBookByGuid(guid: string, name: unknown): Promise<void> {
   const next = bookName(name)
   await mutate(guid, (current) => {
     current.name = next
   })
 }
 
-export async function deleteBook(user: User, guid: string): Promise<void> {
-  const book = await requireBook(user, guid, 3)
-  if (book.ownerId !== user.id) throw new AbError('Удалить книгу может только владелец', 403)
-  if (book.personal) throw new AbError('Личную книгу удалить нельзя')
+export async function deleteBookByGuid(guid: string): Promise<void> {
   const store = await getStore()
+  const book = await store.findAddressBook(guid)
+  if (!book) throw new AbError('Адресная книга не найдена', 404)
+  if (book.personal) throw new AbError('Личную книгу удалить нельзя')
   await store.deleteAddressBook(guid)
 }
 
-/** Выдаёт доступ аккаунту по почте; rule 0 — забирает. */
-export async function shareBook(user: User, guid: string, email: string, rule: number): Promise<void> {
-  const book = await requireBook(user, guid, 3)
-  if (book.ownerId !== user.id) throw new AbError('Доступом управляет только владелец', 403)
-  if (book.personal) throw new AbError('Личной книгой поделиться нельзя — заведите общую')
+export async function setBookShare(guid: string, email: string, rule: number): Promise<void> {
   const store = await getStore()
+  const book = await store.findAddressBook(guid)
+  if (!book) throw new AbError('Адресная книга не найдена', 404)
+  if (book.personal) throw new AbError('Личной книгой поделиться нельзя — заведите общую')
   const target = await store.findUserByEmail(email.trim().toLowerCase())
-  if (!target) throw new AbError('Аккаунт с такой почтой не найден', 404)
-  if (target.id === user.id) throw new AbError('Это ваш аккаунт')
+  if (!target || target.status === 'deleted') throw new AbError('Аккаунт с такой почтой не найден', 404)
+  if (target.id === book.ownerId) throw new AbError('Это владелец книги')
   if (![0, 1, 2, 3].includes(rule)) throw new AbError('Неверный уровень доступа')
   await mutate(guid, (current) => {
     current.shares = current.shares.filter((share) => share.userId !== target.id)
     if (rule > 0) current.shares.push({ userId: target.id, rule: rule as AbRule })
   })
+}
+
+/**
+ * Добавляет в книгу все устройства аккаунта (аналог «добавить из списка
+ * устройств» в панели). Уже записанные не трогает. Возвращает, сколько добавлено.
+ */
+export async function addDevicesToBook(guid: string, userId: string): Promise<number> {
+  const store = await getStore()
+  const devices = await store.listDevicesByUser(userId)
+  let added = 0
+  await mutate(guid, (book) => {
+    const known = new Set(book.peers.map((peer) => peer.id))
+    for (const device of devices) {
+      if (known.has(device.rustdeskId) || book.peers.length >= MAX_PEERS_PER_BOOK) continue
+      book.peers.push({
+        ...peerFromInput({ id: device.rustdeskId }),
+        hostname: device.name,
+        username: device.osUsername,
+        platform: platformFromOs(device.os),
+      })
+      added += 1
+    }
+  })
+  return added
 }
 
 /** Отказ от чужой книги, выданной вам. */

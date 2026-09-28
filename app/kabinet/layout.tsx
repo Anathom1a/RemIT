@@ -10,9 +10,12 @@ const NAV = [
   { href: '/kabinet', label: 'Обзор' },
   { href: '/kabinet/ustroystva', label: 'Устройства' },
   { href: '/kabinet/adresnaya-kniga', label: 'Адресная книга' },
+  { href: '/kabinet/komanda', label: 'Команда' },
+  { href: '/kabinet/veb-klient', label: 'Веб-клиент β' },
   { href: '/kabinet/istoriya', label: 'История' },
   { href: '/kabinet/podderzhka', label: 'Поддержка' },
   { href: '/kabinet/podpiska', label: 'Подписка' },
+  { href: '/kabinet/profil', label: 'Профиль' },
 ]
 
 export default async function CabinetLayout({ children }: { children: React.ReactNode }) {

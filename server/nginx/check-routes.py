@@ -55,14 +55,23 @@ CLIENT_PATHS = [
     "/api/ab/tag/update/obrazec",
     "/api/ab/tag/obrazec",
     "/api/version/latest",
+    # Вход через VK ID в клиенте.
+    "/api/oidc/auth",
+    "/api/oidc/auth-query",
+    "/api/user/info",
+    # Веб-клиент (бета).
+    "/api/server-config",
+    "/api/server-config-v2",
+    "/api/shared-peer",
 ]
 
 
 def parse_locations(text: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """Возвращает точные и префиксные location из блока с TLS."""
-    # Берём только второй server{}: первый редиректит http на https.
+    # Берём server{} сайта (listen 443): первый редиректит http на https,
+    # а блоки на 21118/21119 — WebSocket веб-клиента к hbbs и hbbr.
     servers = text.split("\nserver {")
-    body = servers[-1]
+    body = next((block for block in servers if "listen 443" in block), servers[-1])
 
     exact: list[tuple[str, str]] = []
     prefix: list[tuple[str, str]] = []

@@ -60,6 +60,10 @@ export async function resolveSubject(
   if (controllerId) {
     const controller = await store.findDeviceByRustdeskId(controllerId)
     if (controller?.userId) return userSubject(controller.userId)
+    // Веб-клиент не привязывается как устройство, но если в нём вошли в
+    // аккаунт — вход записан с его ID, и платит этот аккаунт.
+    const login = await store.findActiveClientTokenByDevice(controllerId, new Date().toISOString())
+    if (login) return userSubject(login.userId)
     return deviceSubject(controllerId)
   }
   const host = await store.findDeviceByRustdeskId(hostId)
@@ -177,6 +181,7 @@ export async function touchDevice(
     memory: patch.memory ?? existing?.memory ?? '',
     lastIp: patch.lastIp ?? existing?.lastIp ?? '',
     sysinfoAt: patch.sysinfoAt ?? existing?.sysinfoAt ?? null,
+    groupId: existing?.groupId ?? null,
     lastSeenAt: now.toISOString(),
     createdAt: existing?.createdAt ?? now.toISOString(),
   }

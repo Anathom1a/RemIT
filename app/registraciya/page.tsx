@@ -4,11 +4,13 @@ import { redirect } from 'next/navigation'
 import { AuthForm } from '@/components/auth/auth-form'
 import { Wordmark } from '@/components/brand/logo'
 import { getCurrentUser } from '@/lib/auth'
+import { VkLogin } from '@/components/auth/vk-button'
 import { config } from '@/lib/config'
 
 export const metadata: Metadata = { title: 'Регистрация' }
 
-export default async function RegisterPage() {
+export default async function RegisterPage({ searchParams }: { searchParams: Promise<{ vk_error?: string }> }) {
+  const { vk_error: vkError } = await searchParams
   if (await getCurrentUser()) redirect('/kabinet')
   const freeHours = Math.round(config.quota.freeSecondsPerDay / 3600)
 
@@ -26,6 +28,7 @@ export default async function RegisterPage() {
           </p>
           <div className="mt-6">
             <AuthForm mode="register" />
+            <VkLogin error={vkError} label="Зарегистрироваться через VK ID" />
           </div>
           <p className="mt-4 text-center text-xs leading-relaxed text-text-muted">
             Регистрируясь, вы принимаете{' '}
