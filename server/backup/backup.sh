@@ -35,9 +35,13 @@ report() {
         || log "итог не передан сайту"
 }
 
-# Запуск от пользователя postgres: в контейнере — su-exec, на обычной машине — runuser.
+# Временный Postgres нельзя запускать от root: под root — от пользователя
+# postgres (в контейнере su-exec, на обычной машине runuser), иначе — как есть.
 as_postgres() {
-    if command -v su-exec >/dev/null 2>&1; then su-exec postgres "$@"; else runuser -u postgres -- "$@"; fi
+    if [ "$(id -u)" != "0" ]; then "$@"
+    elif command -v su-exec >/dev/null 2>&1; then su-exec postgres "$@"
+    else runuser -u postgres -- "$@"
+    fi
 }
 
 encrypt() { openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -salt -pass env:BACKUP_PASSPHRASE -in "$1" -out "$2"; }
@@ -83,7 +87,8 @@ verify() {
 
     # Временный Postgres внутри контейнера: развернуть дамп целиком.
     pgdata="$work/pg"
-    mkdir -p "$pgdata" && chown postgres "$work" "$pgdata"
+    mkdir -p "$pgdata"
+    [ "$(id -u)" = "0" ] && chown postgres "$work" "$pgdata"
     as_postgres initdb -D "$pgdata" -U postgres --auth=trust >/dev/null
     as_postgres pg_ctl -D "$pgdata" -o "-p 55439 -k $work -c listen_addresses=''" -w start >/dev/null
     status=0
