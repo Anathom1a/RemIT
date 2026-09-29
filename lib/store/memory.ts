@@ -25,6 +25,7 @@ import type {
   Lead,
   SupportTicket,
   Payment,
+  PromoCode,
   Release,
   Subscription,
   UsageDay,
@@ -56,6 +57,7 @@ interface Snapshot {
   usage: UsageDay[]
   settings: Record<string, string>
   companies: Company[]
+  promoCodes: PromoCode[]
   releases: Release[]
   leads: Lead[]
   tickets: SupportTicket[]
@@ -96,6 +98,7 @@ export class MemoryStore implements Store {
   private usage = new Map<string, UsageDay>()
   private settings: Record<string, string> = {}
   private companies = new Map<string, Company>()
+  private promoCodes = new Map<string, PromoCode>()
   private releases = new Map<string, Release>()
   private leads = new Map<string, Lead>()
   private tickets = new Map<string, SupportTicket>()
@@ -163,6 +166,7 @@ export class MemoryStore implements Store {
       this.usage = new Map(snapshot.usage?.map((u) => [`${u.subjectKey}|${u.day}`, u]))
       this.settings = snapshot.settings ?? {}
       this.companies = new Map(snapshot.companies?.map((c) => [c.userId, c]))
+      this.promoCodes = new Map(snapshot.promoCodes?.map((p) => [p.code, p]))
       this.releases = new Map(snapshot.releases?.map((r) => [r.id, r]))
       this.leads = new Map(snapshot.leads?.map((l) => [l.id, l]))
       // attachments появились позже: у старых записей поля нет.
@@ -201,6 +205,7 @@ export class MemoryStore implements Store {
       usage: [...this.usage.values()],
       settings: this.settings,
       companies: [...this.companies.values()],
+      promoCodes: [...this.promoCodes.values()],
       releases: [...this.releases.values()],
       leads: [...this.leads.values()],
       tickets: [...this.tickets.values()],
@@ -1072,6 +1077,36 @@ export class MemoryStore implements Store {
     await this.sync()
     for (const [id, day] of this.monitorDays) if (day.day < beforeDay) this.monitorDays.delete(id)
     this.monitorEvents = this.monitorEvents.filter((e) => e.at >= beforeAt)
+    await this.persist()
+  }
+
+  async listPromoCodes(): Promise<PromoCode[]> {
+    await this.sync()
+    return [...this.promoCodes.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  }
+
+  async findPromoCode(code: string): Promise<PromoCode | null> {
+    await this.sync()
+    return this.promoCodes.get(code) ?? null
+  }
+
+  async savePromoCode(promo: PromoCode): Promise<void> {
+    await this.sync()
+    const current = this.promoCodes.get(promo.code)
+    this.promoCodes.set(promo.code, { ...promo, usedCount: current?.usedCount ?? 0 })
+    await this.persist()
+  }
+
+  async deletePromoCode(code: string): Promise<void> {
+    await this.sync()
+    if (this.promoCodes.delete(code)) await this.persist()
+  }
+
+  async usePromoCode(code: string): Promise<void> {
+    await this.sync()
+    const promo = this.promoCodes.get(code)
+    if (!promo) return
+    this.promoCodes.set(code, { ...promo, usedCount: promo.usedCount + 1 })
     await this.persist()
   }
 

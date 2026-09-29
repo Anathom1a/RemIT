@@ -35,11 +35,14 @@ export async function POST(request: Request) {
   try {
     // Организация: счёт с реквизитами вместо страницы оплаты картой.
     if (payload.method === 'invoice') {
-      const payment = await createInvoice(user, { plan, months })
-      await sendInvoiceIssued(user, payment)
+      const payment = await createInvoice(user, { plan, months, promoCode: payload.promoCode })
+      if (payment.provider === 'invoice') await sendInvoiceIssued(user, payment)
       return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl: payment.confirmationUrl })
     }
-    const { payment, redirectUrl } = await createCheckout(user, plan, months, { autoRenew: payload.autoRenew === true })
+    const { payment, redirectUrl } = await createCheckout(user, plan, months, {
+      autoRenew: payload.autoRenew === true,
+      promoCode: typeof payload.promoCode === 'string' ? payload.promoCode : undefined,
+    })
     return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl })
   } catch (error) {
     if (error instanceof CheckoutError) {

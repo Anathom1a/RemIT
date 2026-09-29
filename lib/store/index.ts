@@ -21,6 +21,7 @@ import type {
   MonitorDay,
   MonitorEvent,
   Payment,
+  PromoCode,
   Release,
   Subscription,
   UsageDay,
@@ -225,6 +226,14 @@ export interface Store {
   purgeMonitor(beforeDay: string, beforeAt: string): Promise<void>
 
   /** Настройки, которые меняются в админке без перезапуска. */
+  listPromoCodes(): Promise<PromoCode[]>
+  findPromoCode(code: string): Promise<PromoCode | null>
+  /** Создаёт или меняет условия; счётчик применений не трогает. */
+  savePromoCode(promo: PromoCode): Promise<void>
+  deletePromoCode(code: string): Promise<void>
+  /** +1 применение (оплаченный платёж). */
+  usePromoCode(code: string): Promise<void>
+
   /** Реквизиты организации аккаунта для счетов и актов. */
   findCompany(userId: string): Promise<Company | null>
   saveCompany(company: Company): Promise<void>

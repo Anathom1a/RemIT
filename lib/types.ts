@@ -364,6 +364,38 @@ export interface Payment {
   buyer: Company | null
   /** Согласованный лимит сессий, который включит оплата (корпоративный счёт). */
   concurrentSessions: number | null
+  /** Промокод, по которому оформлен платёж, и скидка в копейках. */
+  promoCode: string
+  discount: number
+}
+
+/**
+ * Промокод: скидка на один платёж за тариф целиком (не на доплату при
+ * повышении и не на автопродление).
+ */
+export interface PromoCode {
+  /** Заглавными латинскими буквами и цифрами: SPRING25. */
+  code: string
+  /** percent — value в процентах (1–100), fixed — value в копейках. */
+  kind: 'percent' | 'fixed'
+  value: number
+  /** На какие тарифы; пусто — на любые платные. */
+  plans: PlanId[]
+  /** На какие сроки в месяцах; пусто — на любые. */
+  months: number[]
+  /** Сколько раз всего можно применить; null — без ограничения. */
+  maxUses: number | null
+  /** Сколько раз применён (оплаченные платежи). */
+  usedCount: number
+  /** Только для тех, кто ещё ни разу не платил. */
+  firstPaymentOnly: boolean
+  /** До какого момента действует; null — бессрочно. */
+  validUntil: string | null
+  active: boolean
+  /** Для себя: откуда код, для кого. */
+  note: string
+  createdAt: string
+  createdBy: string
 }
 
 /**

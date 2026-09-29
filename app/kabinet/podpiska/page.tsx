@@ -5,6 +5,7 @@ import { LimitBanner } from '@/components/cabinet/limit-banner'
 import { DataTable } from '@/components/ui/data-table'
 import { AutoRenewChoice, DisableAutopayButton } from '@/components/cabinet/autopay'
 import { InvoiceForm } from '@/components/cabinet/invoice-form'
+import { PromoProvider } from '@/components/cabinet/promo'
 import { DOCUMENT_TITLES, documentPath, invoicesAvailable, paymentDocuments } from '@/lib/documents'
 import {
   autopayAvailable,
@@ -84,6 +85,8 @@ export default async function SubscriptionPage({
   const invoiceId = typeof params.schet === 'string' ? params.schet : ''
   // Сюда ведёт уведомление о нехватке сессий: этот тариф подсвечиваем.
   const suggested = typeof params.upgrade === 'string' ? params.upgrade : ''
+  // Промокод из рекламной ссылки: /kabinet/podpiska?promo=SPRING25.
+  const promoFromLink = typeof params.promo === 'string' && params.promo !== 'activated' ? params.promo : ''
 
   // Если вебхук ЮKassa не дошёл, статусы подтянутся при открытии страницы.
   await syncPendingPayments(user.id)
@@ -238,117 +241,128 @@ export default async function SubscriptionPage({
         </div>
       )}
 
-      <PlanChoice autopay={autopayAvailable() && !paidSubscription?.autoRenew}>
-        <div className="grid gap-5 md:grid-cols-3">
-          {paidPlans.map((plan) => {
-            const isCurrent = paidSubscription?.plan === plan.id
-            const quote = quotes.get(plan.id)
-            const isLower = paidSubscription && !isCurrent && planRank(plan.id) < planRank(paidSubscription.plan)
-            const isSuggested = suggested === plan.id
-            const accent = isSuggested || (!suggested && plan.highlighted)
-
-            return (
-              <div
-                key={plan.id}
-                id={`plan-${plan.id}`}
-                className={`card flex scroll-mt-24 flex-col p-6 ${accent ? 'border-brand-500/60' : ''}`}
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold">{plan.name}</h2>
-                  {isCurrent && <span className="pill !py-0.5 !text-[11px]">ваш тариф</span>}
-                  {isSuggested && !isCurrent && <span className="pill !py-0.5 !text-[11px]">рекомендуем</span>}
-                </div>
-                <p className="mt-1 text-sm text-text-muted">{plan.tagline}</p>
-                <p className="mt-4 text-2xl font-semibold">{formatPrice(plan.priceMonthly)}</p>
-                <p className="text-sm text-text-muted">в месяц · {formatPrice(plan.priceYearly)} за год</p>
-
-                <ul className="mt-5 flex-1 space-y-2 text-sm text-text-secondary">
-                  {plan.features.slice(0, 4).map((feature) => (
-                    <li key={feature}>• {feature}</li>
-                  ))}
-                </ul>
-
-                <div className="mt-6 space-y-2">
-                  {quote ? (
-                    <>
-                      <CheckoutButton
-                        plan={plan.id}
-                        upgrade
-                        label={`Перейти сейчас — доплата ${formatPrice(quote.amount)}`}
-                        variant={accent ? 'primary' : 'secondary'}
-                      />
-                      <p className="text-xs leading-relaxed text-text-muted">
-                        Тариф «{plan.name}» включится сразу и будет действовать до {formatDate(quote.until)} —
-                        платите только разницу за {quote.remainingDays} дн.
-                        {quote.basis === 'year' ? ' Считаем по годовым ценам, как вы покупали.' : ''} Одновременных
-                        сессий станет {plan.concurrentSessions}.
-                        {paidSubscription?.autoRenew
-                          ? ` Автопродление сохранится — дальше по цене «${plan.name}».`
-                          : ''}
-                      </p>
-                    </>
-                  ) : isLower ? (
-                    <p className="rounded-xl border border-white/8 bg-ink-850/50 p-3 text-xs leading-relaxed text-text-muted">
-                      Перейти на этот тариф можно после окончания текущей подписки —{' '}
-                      {formatDate(paidSubscription.expiresAt)}.
-                    </p>
-                  ) : (
-                    <>
-                      <CheckoutButton
-                        plan={plan.id}
-                        months={1}
-                        label={`${isCurrent ? 'Продлить на месяц' : 'Оплатить месяц'} — ${formatPrice(plan.priceMonthly)}`}
-                        variant={accent && !isCurrent ? 'primary' : 'secondary'}
-                      />
-                      <CheckoutButton
-                        plan={plan.id}
-                        months={12}
-                        label={`${isCurrent ? 'Продлить на год' : 'Год'} — ${formatPrice(plan.priceYearly)}`}
-                        variant="secondary"
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </PlanChoice>
-
-      {invoicesAvailable() && (
-        <div id="po-schetu" className="card scroll-mt-24 p-5 sm:p-6">
-          <h2 className="font-semibold">Оплата по счёту для организаций</h2>
-          {!company ? (
-            <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-              Выставим счёт на организацию или ИП, после оплаты — акт. Сначала{' '}
-              <a href="/kabinet/profil#rekvizity" className="text-brand-400 hover:text-brand-300">
-                заполните реквизиты в профиле
-              </a>
-              .
-            </p>
-          ) : invoicePlans.length === 0 ? (
-            <p className="mt-2 text-sm leading-relaxed text-text-secondary">
-              Продление по счёту для вашего тарифа выставляет отдел продаж — напишите на {config.brand.salesEmail}.
-            </p>
-          ) : (
-            <>
-              <p className="mt-2 mb-4 text-sm leading-relaxed text-text-secondary">
-                Счёт на {company.name}, ИНН {company.inn}. Подписка включится после поступления оплаты на наш
-                расчётный счёт, акт появится здесь же. Чек по 54-ФЗ при оплате с расчётного счёта не выдаётся.
-              </p>
-              <InvoiceForm
-                plans={invoicePlans.map((plan) => ({
-                  id: plan.id,
-                  name: plan.name,
-                  priceMonthly: formatPrice(plan.priceMonthly),
-                  priceYearly: formatPrice(plan.priceYearly),
-                }))}
-                defaultPlan={paidSubscription?.plan}
-              />
-            </>
-          )}
+      {params.promo === 'activated' && (
+        <div className="card border-success/30 p-5 sm:p-6">
+          <h2 className="font-semibold text-success">Тариф включён по промокоду</h2>
+          <p className="mt-1 text-sm text-text-secondary">Оплачивать ничего не нужно — всё уже работает.</p>
         </div>
       )}
+
+      <PromoProvider initialCode={promoFromLink}>
+        <PlanChoice autopay={autopayAvailable() && !paidSubscription?.autoRenew}>
+          <div className="grid gap-5 md:grid-cols-3">
+            {paidPlans.map((plan) => {
+              const isCurrent = paidSubscription?.plan === plan.id
+              const quote = quotes.get(plan.id)
+              const isLower = paidSubscription && !isCurrent && planRank(plan.id) < planRank(paidSubscription.plan)
+              const isSuggested = suggested === plan.id
+              const accent = isSuggested || (!suggested && plan.highlighted)
+
+              return (
+                <div
+                  key={plan.id}
+                  id={`plan-${plan.id}`}
+                  className={`card flex scroll-mt-24 flex-col p-6 ${accent ? 'border-brand-500/60' : ''}`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg font-semibold">{plan.name}</h2>
+                    {isCurrent && <span className="pill !py-0.5 !text-[11px]">ваш тариф</span>}
+                    {isSuggested && !isCurrent && <span className="pill !py-0.5 !text-[11px]">рекомендуем</span>}
+                  </div>
+                  <p className="mt-1 text-sm text-text-muted">{plan.tagline}</p>
+                  <p className="mt-4 text-2xl font-semibold">{formatPrice(plan.priceMonthly)}</p>
+                  <p className="text-sm text-text-muted">в месяц · {formatPrice(plan.priceYearly)} за год</p>
+
+                  <ul className="mt-5 flex-1 space-y-2 text-sm text-text-secondary">
+                    {plan.features.slice(0, 4).map((feature) => (
+                      <li key={feature}>• {feature}</li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-6 space-y-2">
+                    {quote ? (
+                      <>
+                        <CheckoutButton
+                          plan={plan.id}
+                          upgrade
+                          label={`Перейти сейчас — доплата ${formatPrice(quote.amount)}`}
+                          variant={accent ? 'primary' : 'secondary'}
+                        />
+                        <p className="text-xs leading-relaxed text-text-muted">
+                          Тариф «{plan.name}» включится сразу и будет действовать до {formatDate(quote.until)} —
+                          платите только разницу за {quote.remainingDays} дн.
+                          {quote.basis === 'year' ? ' Считаем по годовым ценам, как вы покупали.' : ''} Одновременных
+                          сессий станет {plan.concurrentSessions}.
+                          {paidSubscription?.autoRenew
+                            ? ` Автопродление сохранится — дальше по цене «${plan.name}».`
+                            : ''}
+                        </p>
+                      </>
+                    ) : isLower ? (
+                      <p className="rounded-xl border border-white/8 bg-ink-850/50 p-3 text-xs leading-relaxed text-text-muted">
+                        Перейти на этот тариф можно после окончания текущей подписки —{' '}
+                        {formatDate(paidSubscription.expiresAt)}.
+                      </p>
+                    ) : (
+                      <>
+                        <CheckoutButton
+                          plan={plan.id}
+                          months={1}
+                          label={isCurrent ? 'Продлить на месяц' : 'Оплатить месяц'}
+                          price={plan.priceMonthly}
+                          variant={accent && !isCurrent ? 'primary' : 'secondary'}
+                        />
+                        <CheckoutButton
+                          plan={plan.id}
+                          months={12}
+                          label={isCurrent ? 'Продлить на год' : 'Год'}
+                          price={plan.priceYearly}
+                          variant="secondary"
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </PlanChoice>
+
+        {invoicesAvailable() && (
+          <div id="po-schetu" className="card scroll-mt-24 p-5 sm:p-6">
+            <h2 className="font-semibold">Оплата по счёту для организаций</h2>
+            {!company ? (
+              <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+                Выставим счёт на организацию или ИП, после оплаты — акт. Сначала{' '}
+                <a href="/kabinet/profil#rekvizity" className="text-brand-400 hover:text-brand-300">
+                  заполните реквизиты в профиле
+                </a>
+                .
+              </p>
+            ) : invoicePlans.length === 0 ? (
+              <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+                Продление по счёту для вашего тарифа выставляет отдел продаж — напишите на {config.brand.salesEmail}.
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 mb-4 text-sm leading-relaxed text-text-secondary">
+                  Счёт на {company.name}, ИНН {company.inn}. Подписка включится после поступления оплаты на наш
+                  расчётный счёт, акт появится здесь же. Чек по 54-ФЗ при оплате с расчётного счёта не выдаётся.
+                </p>
+                <InvoiceForm
+                  plans={invoicePlans.map((plan) => ({
+                    id: plan.id,
+                    name: plan.name,
+                    priceMonthly: formatPrice(plan.priceMonthly),
+                    priceYearly: formatPrice(plan.priceYearly),
+                  }))}
+                  defaultPlan={paidSubscription?.plan}
+                />
+              </>
+            )}
+          </div>
+        )}
+      </PromoProvider>
 
       <div id="corporate" className="card grid scroll-mt-24 gap-6 p-6 md:grid-cols-[1.4fr_1fr] md:items-center">
         <div>
@@ -413,7 +427,16 @@ export default async function SubscriptionPage({
             {
               key: 'amount',
               header: 'Сумма',
-              render: (payment) => <span className="tabular-nums">{formatPrice(payment.amount)}</span>,
+              render: (payment) => (
+                <span className="tabular-nums">
+                  {formatPrice(payment.amount)}
+                  {payment.promoCode && (
+                    <span className="block text-xs text-text-muted">
+                      промокод {payment.promoCode}, скидка {formatPrice(payment.discount)}
+                    </span>
+                  )}
+                </span>
+              ),
             },
             {
               key: 'status',

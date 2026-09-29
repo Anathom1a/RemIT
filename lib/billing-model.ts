@@ -1,6 +1,14 @@
 import type { Payment, Subscription } from './types'
 
 /**
+ * Ошибка, которую можно показать покупателю как есть: неверный тариф, переход
+ * не туда, промокод не подходит и тому подобное. Всё остальное (сбой ЮKassa,
+ * не заданы ключи) пишется в журнал, а покупатель видит нейтральное «оплата
+ * недоступна».
+ */
+export class CheckoutError extends Error {}
+
+/**
  * Значения по умолчанию для полей автопродления и чеков. Нужны и новым
  * записям, и старым: в хранилище они появились позже.
  */
@@ -45,6 +53,8 @@ export type PaymentExtras = Pick<
   | 'documentNumber'
   | 'buyer'
   | 'concurrentSessions'
+  | 'promoCode'
+  | 'discount'
 >
 
 export function paymentExtras(): PaymentExtras {
@@ -62,6 +72,8 @@ export function paymentExtras(): PaymentExtras {
     documentNumber: '',
     buyer: null,
     concurrentSessions: null,
+    promoCode: '',
+    discount: 0,
   }
 }
 

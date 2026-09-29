@@ -46,6 +46,7 @@ const TABLES = {
   webShares: 'web_shares',
   incidents: 'incidents',
   companies: 'companies',
+  promoCodes: 'promo_codes',
   monitorEvents: 'monitor_events',
 }
 
@@ -59,8 +60,9 @@ export async function readStore() {
   for (const [name, table] of Object.entries(TABLES)) {
     snapshot[name] = (await db.query(`SELECT * FROM ${table}`)).rows.map(camel)
   }
-  snapshot.payments = snapshot.payments.map((payment) => ({ ...payment, amount: Number(payment.amount) }))
+  snapshot.payments = snapshot.payments.map((payment) => ({ ...payment, amount: Number(payment.amount), discount: Number(payment.discount ?? 0) }))
   snapshot.companies = snapshot.companies.map((row) => row.data)
+  snapshot.promoCodes = snapshot.promoCodes.map((row) => ({ ...row.data, usedCount: row.usedCount }))
   const settings = (await db.query('SELECT key, value FROM settings')).rows
   snapshot.settings = Object.fromEntries(settings.map((row) => [row.key, row.value]))
   return snapshot

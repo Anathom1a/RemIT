@@ -201,6 +201,16 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS document_number TEXT NOT NULL DEFA
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS buyer JSONB;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS concurrent_sessions INTEGER;
 
+-- Промокоды: скидка на платёж за тариф.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS promo_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS discount BIGINT NOT NULL DEFAULT 0;
+CREATE TABLE IF NOT EXISTS promo_codes (
+    code       TEXT PRIMARY KEY,
+    data       JSONB NOT NULL,
+    used_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Реквизиты организации аккаунта (одна на аккаунт).
 CREATE TABLE IF NOT EXISTS companies (
     user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

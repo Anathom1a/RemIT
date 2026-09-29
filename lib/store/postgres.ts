@@ -26,6 +26,7 @@ import type {
   MonitorDay,
   MonitorEvent,
   Payment,
+  PromoCode,
   Release,
   Subscription,
   UsageDay,
@@ -56,7 +57,7 @@ const PAYMENT_FIELDS = [
   'id', 'user_id', 'plan', 'months', 'amount', 'status', 'provider', 'provider_payment_id', 'confirmation_url',
   'created_at', 'paid_at', 'kind', 'from_plan', 'upgrade_until', 'recurring', 'save_method', 'subscription_id',
   'idempotence_key', 'failure_reason', 'receipt_email', 'service_ends_at', 'settlement', 'receipts', 'refunds',
-  'document_number', 'buyer', 'concurrent_sessions',
+  'document_number', 'buyer', 'concurrent_sessions', 'promo_code', 'discount',
 ]
 const PAYMENT_COLUMNS = PAYMENT_FIELDS.join(', ')
 const PAYMENT_VALUES = PAYMENT_FIELDS.map((_, index) => `$${index + 1}`).join(', ')
@@ -90,6 +91,8 @@ function paymentParams(payment: Payment): unknown[] {
     payment.documentNumber ?? '',
     payment.buyer ? JSON.stringify(payment.buyer) : null,
     payment.concurrentSessions ?? null,
+    payment.promoCode ?? '',
+    payment.discount ?? 0,
   ]
 }
 
@@ -196,6 +199,8 @@ export class PostgresStore implements Store {
       documentNumber: row.document_number ?? '',
       buyer: (row.buyer ?? null) as Company | null,
       concurrentSessions: row.concurrent_sessions ?? null,
+      promoCode: row.promo_code ?? '',
+      discount: Number(row.discount ?? 0),
     }
   }
 
@@ -1367,6 +1372,37 @@ export class PostgresStore implements Store {
   async purgeMonitor(beforeDay: string, beforeAt: string): Promise<void> {
     await this.query('DELETE FROM monitor_days WHERE day < $1', [beforeDay])
     await this.query('DELETE FROM monitor_events WHERE at < $1', [beforeAt])
+  }
+
+  private toPromo(row: Row): PromoCode {
+    return { ...(row.data as PromoCode), usedCount: Number(row.used_count) }
+  }
+
+  async listPromoCodes(): Promise<PromoCode[]> {
+    const rows = await this.query('SELECT data, used_count FROM promo_codes ORDER BY created_at DESC')
+    return rows.map((row) => this.toPromo(row))
+  }
+
+  async findPromoCode(code: string): Promise<PromoCode | null> {
+    const [row] = await this.query('SELECT data, used_count FROM promo_codes WHERE code = $1', [code])
+    return row ? this.toPromo(row) : null
+  }
+
+  async savePromoCode(promo: PromoCode): Promise<void> {
+    const { usedCount: _usedCount, ...data } = promo
+    await this.query(
+      `INSERT INTO promo_codes (code, data, created_at) VALUES ($1, $2, $3)
+       ON CONFLICT (code) DO UPDATE SET data = EXCLUDED.data`,
+      [promo.code, JSON.stringify(data), promo.createdAt],
+    )
+  }
+
+  async deletePromoCode(code: string): Promise<void> {
+    await this.query('DELETE FROM promo_codes WHERE code = $1', [code])
+  }
+
+  async usePromoCode(code: string): Promise<void> {
+    await this.query('UPDATE promo_codes SET used_count = used_count + 1 WHERE code = $1', [code])
   }
 
   async findCompany(userId: string): Promise<Company | null> {

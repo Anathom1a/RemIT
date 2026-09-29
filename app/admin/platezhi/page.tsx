@@ -131,7 +131,16 @@ export default async function AdminPaymentsPage() {
             {
               key: 'amount',
               header: 'Сумма',
-              render: (payment) => <span className="tabular-nums">{formatPrice(payment.amount)}</span>,
+              render: (payment) => (
+                <span className="tabular-nums">
+                  {formatPrice(payment.amount)}
+                  {payment.promoCode && (
+                    <span className="block text-xs text-text-muted">
+                      {payment.promoCode}: −{formatPrice(payment.discount)}
+                    </span>
+                  )}
+                </span>
+              ),
             },
             {
               key: 'provider',
@@ -142,7 +151,9 @@ export default async function AdminPaymentsPage() {
                     ? 'ЮKassa'
                     : payment.provider === 'invoice'
                       ? `счёт № ${payment.documentNumber}`
-                      : payment.provider}
+                      : payment.provider === 'promo'
+                        ? 'промокод, без оплаты'
+                        : payment.provider}
                   {paymentDocuments(payment).map((kind) => (
                     <a
                       key={kind}

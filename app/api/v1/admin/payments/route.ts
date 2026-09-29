@@ -62,7 +62,7 @@ export async function POST(request: Request) {
         },
         true,
       )
-      await sendInvoiceIssued(user, payment)
+      if (payment.provider === 'invoice') await sendInvoiceIssued(user, payment)
       return NextResponse.json({ ok: true, payment })
     } catch (error) {
       if (error instanceof CheckoutError) return NextResponse.json({ error: error.message }, { status: 400 })

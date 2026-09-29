@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { usePromo } from './promo'
 
 const field =
   'h-10 rounded-xl border border-white/10 bg-ink-850/70 px-3 text-sm text-text-primary focus:border-brand-500 focus:outline-none'
@@ -16,6 +17,7 @@ export function InvoiceForm({
   defaultPlan?: string
 }) {
   const router = useRouter()
+  const promo = usePromo()
   const [plan, setPlan] = useState(defaultPlan ?? plans[0]?.id ?? '')
   const [months, setMonths] = useState(12)
   const [pending, setPending] = useState(false)
@@ -28,7 +30,7 @@ export function InvoiceForm({
     const response = await fetch('/api/v1/billing/checkout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan, months, method: 'invoice' }),
+      body: JSON.stringify({ plan, months, method: 'invoice', ...(promo ? { promoCode: promo.code } : {}) }),
     })
     const data = (await response.json().catch(() => ({}))) as { redirectUrl?: string; error?: string }
     setPending(false)
@@ -56,7 +58,7 @@ export function InvoiceForm({
         <option value={12}>1 год</option>
       </select>
       <Button type="submit" size="sm" disabled={pending}>
-        {pending ? 'Выставляем…' : 'Выставить счёт'}
+        {pending ? 'Выставляем…' : promo ? `Выставить счёт с промокодом ${promo.code}` : 'Выставить счёт'}
       </Button>
       {error && <p className="w-full text-sm text-danger">{error}</p>}
     </form>

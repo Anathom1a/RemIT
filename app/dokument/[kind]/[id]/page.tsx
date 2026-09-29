@@ -31,7 +31,8 @@ const DAY = 24 * 60 * 60 * 1000
 function serviceName(payment: Payment, kind: DocumentKind): string {
   const plan = getPlan(payment.plan)
   const sessions = payment.concurrentSessions ? `, до ${payment.concurrentSessions} одновременных сессий` : ''
-  const base = `Предоставление доступа к сервису удалённого доступа ${config.brand.name} по тарифу «${plan.name}»${sessions}`
+  const promo = payment.promoCode ? ` (с учётом скидки по промокоду ${payment.promoCode})` : ''
+  const base = `Предоставление доступа к сервису удалённого доступа ${config.brand.name} по тарифу «${plan.name}»${promo}${sessions}`
   if (payment.kind === 'upgrade') {
     const from = payment.fromPlan ? getPlan(payment.fromPlan).name : ''
     return `${base} (переход с тарифа «${from}») с ${formatDate(payment.paidAt ?? payment.createdAt)} по ${formatDate(payment.upgradeUntil)}`

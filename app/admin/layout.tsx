@@ -9,6 +9,7 @@ const NAV = [
   { href: '/admin/zayavki', label: 'Заявки' },
   { href: '/admin/obrashcheniya', label: 'Обращения' },
   { href: '/admin/platezhi', label: 'Платежи и подписки' },
+  { href: '/admin/promokody', label: 'Промокоды' },
   { href: '/admin/sessii', label: 'Сессии' },
   { href: '/admin/ustroystva', label: 'Устройства' },
   { href: '/admin/vhody', label: 'Входы в клиенте' },

@@ -6,7 +6,8 @@ import { newId } from './auth'
 import { billingDay, formatDate } from './time'
 import { formatDocumentNumber, invoicesAvailable } from './documents'
 import { sendInvoicePaid } from './billing-mail'
-import { AUTOPAY_OFF, paymentExtras, type AutopayFields } from './billing-model'
+import { applyPromo } from './promo'
+import { AUTOPAY_OFF, CheckoutError, paymentExtras, type AutopayFields } from './billing-model'
 import {
   createPayment as createYookassaApiPayment,
   getPayment as getYookassaApiPayment,
@@ -23,12 +24,7 @@ import type { Payment, Subscription, User } from './types'
  *              через POST /api/v1/billing/confirm с сервисным токеном.
  */
 
-/**
- * Ошибка, которую можно показать покупателю как есть: неверный тариф, переход
- * не туда и тому подобное. Всё остальное (сбой ЮKassa, не заданы ключи)
- * пишется в журнал, а покупатель видит нейтральное «оплата недоступна».
- */
-export class CheckoutError extends Error {}
+export { CheckoutError }
 
 export interface CheckoutResult {
   payment: Payment
@@ -150,17 +146,19 @@ export async function createCheckout(
   user: User,
   planId: PlanId,
   months: number,
-  options: { autoRenew?: boolean } = {},
+  options: { autoRenew?: boolean; promoCode?: string } = {},
 ): Promise<CheckoutResult> {
   await assertPurchasable(user, planId)
   const store = await getStore()
 
   const amount = calculateAmount(planId, months)
   const payment = newPayment(user, { kind: 'subscription', plan: planId, fromPlan: null, upgradeUntil: null, months, amount })
-  // Карту сохраняем, только если человек сам отметил автопродление.
-  payment.saveMethod = Boolean(options.autoRenew) && autopayAvailable()
+  await withPromo(user, payment, options.promoCode)
   // Организация платит картой — акт тоже нужен.
   payment.buyer = await store.findCompany(user.id)
+  if (payment.amount === 0) return activateFree(payment)
+  // Карту сохраняем, только если человек сам отметил автопродление.
+  payment.saveMethod = Boolean(options.autoRenew) && autopayAvailable()
 
   if (config.billing.provider === 'yookassa') {
     const created = await sendPaymentToYookassa(payment)
@@ -172,6 +170,27 @@ export async function createCheckout(
 
   await store.createPayment(payment)
   return { payment, redirectUrl: payment.confirmationUrl }
+}
+
+/** Скидка по промокоду: уменьшает сумму платежа и запоминает код. */
+async function withPromo(user: User, payment: Payment, promoCode?: string) {
+  if (!promoCode || !String(promoCode).trim()) return
+  const { promo, discount } = await applyPromo(user, promoCode, payment.plan, payment.months, payment.amount)
+  payment.promoCode = promo.code
+  payment.discount = discount
+  payment.amount -= discount
+}
+
+/** Промокод на 100%: оплачивать нечего — тариф включается сразу. */
+async function activateFree(payment: Payment): Promise<CheckoutResult> {
+  const store = await getStore()
+  payment.provider = 'promo'
+  payment.providerPaymentId = `promo-${payment.promoCode}`
+  payment.confirmationUrl = '/kabinet/podpiska?promo=activated'
+  payment.buyer = null
+  await store.createPayment(payment)
+  await markPaymentPaid(payment)
+  return { payment: { ...payment, status: 'succeeded' }, redirectUrl: payment.confirmationUrl }
 }
 
 /* --------------------------------------------------------------------------
@@ -193,6 +212,7 @@ export async function nextDocumentNumber(now = new Date()): Promise<string> {
 export interface InvoiceOptions {
   plan: PlanId
   months: number
+  promoCode?: string
   /** Для корпоративного счёта из админки — согласованная сумма, копейки. */
   amount?: number
   /** Согласованный лимит одновременных сессий. */
@@ -229,6 +249,9 @@ export async function createInvoice(user: User, options: InvoiceOptions, byAdmin
   }
 
   const payment = newPayment(user, { kind: 'subscription', plan: plan.id, fromPlan: null, upgradeUntil: null, months, amount })
+  // Договорная сумма из админки — уже со всеми скидками.
+  if (!(byAdmin && options.amount)) await withPromo(user, payment, options.promoCode)
+  if (payment.amount === 0) return (await activateFree(payment)).payment
   payment.provider = 'invoice'
   payment.buyer = company
   payment.documentNumber = await nextDocumentNumber()
@@ -339,8 +362,9 @@ export async function markPaymentPaid(payment: Payment, remote?: YookassaPayment
       : ''
   // Акт организации, которая платила картой: номер — при оплате, чтобы
   // брошенные заказы не оставляли дыр в нумерации.
-  if (paid.buyer && !paid.documentNumber) paid.documentNumber = await nextDocumentNumber()
+  if (paid.buyer && paid.amount > 0 && !paid.documentNumber) paid.documentNumber = await nextDocumentNumber()
   await store.savePayment(paid)
+  if (paid.promoCode) await store.usePromoCode(paid.promoCode)
   if (paid.provider === 'invoice') {
     const user = await store.findUserById(paid.userId)
     if (user && user.status === 'active') await sendInvoicePaid(user, paid, subscription)
