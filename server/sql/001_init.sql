@@ -160,6 +160,8 @@ ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_attempts INTEGER NOT NU
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_next_at TIMESTAMPTZ;
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_notice_for TIMESTAMPTZ;
 ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS renew_error TEXT NOT NULL DEFAULT '';
+-- Напоминания об окончании подписки без автопродления.
+ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS expiry_notice_for TEXT;
 CREATE INDEX IF NOT EXISTS subscriptions_renew_idx ON subscriptions(expires_at) WHERE auto_renew AND status = 'active';
 
 CREATE TABLE IF NOT EXISTS payments (

@@ -163,6 +163,7 @@ export class PostgresStore implements Store {
       renewNextAt: iso(row.renew_next_at ?? null),
       renewNoticeFor: iso(row.renew_notice_for ?? null),
       renewError: row.renew_error ?? '',
+      expiryNoticeFor: row.expiry_notice_for ?? null,
     }
   }
 
@@ -953,8 +954,8 @@ export class PostgresStore implements Store {
     await this.query(
       `INSERT INTO subscriptions (id, user_id, plan, status, started_at, expires_at, auto_renew, provider, provider_id,
          concurrent_sessions, payment_method_id, payment_method_title, renew_months, renew_attempts, renew_next_at,
-         renew_notice_for, renew_error)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         renew_notice_for, renew_error, expiry_notice_for)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        ON CONFLICT (id) DO UPDATE SET
          plan = EXCLUDED.plan,
          status = EXCLUDED.status,
@@ -970,7 +971,8 @@ export class PostgresStore implements Store {
          renew_attempts = EXCLUDED.renew_attempts,
          renew_next_at = EXCLUDED.renew_next_at,
          renew_notice_for = EXCLUDED.renew_notice_for,
-         renew_error = EXCLUDED.renew_error`,
+         renew_error = EXCLUDED.renew_error,
+         expiry_notice_for = EXCLUDED.expiry_notice_for`,
       [
         subscription.id,
         subscription.userId,
@@ -989,6 +991,7 @@ export class PostgresStore implements Store {
         subscription.renewNextAt,
         subscription.renewNoticeFor,
         subscription.renewError,
+        subscription.expiryNoticeFor ?? null,
       ],
     )
   }
@@ -1002,6 +1005,16 @@ export class PostgresStore implements Store {
     const rows = await this.query(
       `SELECT * FROM subscriptions
        WHERE auto_renew AND status = 'active' AND expires_at >= $1 AND expires_at <= $2
+       ORDER BY expires_at ASC`,
+      [from, until],
+    )
+    return rows.map((row) => this.toSubscription(row))
+  }
+
+  async listExpiringSubscriptions(from: string, until: string): Promise<Subscription[]> {
+    const rows = await this.query(
+      `SELECT * FROM subscriptions
+       WHERE NOT auto_renew AND status = 'active' AND expires_at >= $1 AND expires_at <= $2
        ORDER BY expires_at ASC`,
       [from, until],
     )

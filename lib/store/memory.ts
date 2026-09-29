@@ -804,6 +804,18 @@ export class MemoryStore implements Store {
       .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
   }
 
+  async listExpiringSubscriptions(from: string, until: string): Promise<Subscription[]> {
+    await this.sync()
+    const low = new Date(from).getTime()
+    const high = new Date(until).getTime()
+    return [...this.subscriptions.values()]
+      .filter((s) => {
+        const at = new Date(s.expiresAt).getTime()
+        return s.status === 'active' && !s.autoRenew && at >= low && at <= high
+      })
+      .sort((a, b) => a.expiresAt.localeCompare(b.expiresAt))
+  }
+
   async saveSubscription(subscription: Subscription): Promise<void> {
     await this.sync()
     this.subscriptions.set(subscription.id, subscription)

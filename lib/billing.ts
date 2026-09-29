@@ -255,6 +255,7 @@ const autopayOf = (subscription: Subscription): AutopayFields & { autoRenew: boo
   renewNextAt: null,
   renewNoticeFor: subscription.renewNoticeFor,
   renewError: '',
+  expiryNoticeFor: subscription.expiryNoticeFor,
 })
 
 /** Продлевает подписку: от текущей даты окончания, если она ещё не прошла. */

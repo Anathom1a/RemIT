@@ -1,8 +1,14 @@
 import { createHash } from 'node:crypto'
 import { config } from './config'
 import { AUTOPAY_OFF, paymentExtras } from './billing-model'
-import { calculateAmount, markPaymentPaid, paymentDescription, sendPaymentToYookassa } from './billing'
-import { sendRenewalFailed, sendRenewalNotice, sendRenewalSucceeded } from './billing-mail'
+import { autopayAvailable, calculateAmount, markPaymentPaid, paymentDescription, sendPaymentToYookassa } from './billing'
+import {
+  sendExpiryReminder,
+  sendRenewalFailed,
+  sendRenewalNotice,
+  sendRenewalSucceeded,
+  type ExpiryStage,
+} from './billing-mail'
 import { getPlan, isFreePlan } from './plans'
 import { getStore } from './store'
 import { syncPendingRefunds } from './refunds'
@@ -29,7 +35,9 @@ import type { Payment, PaymentReceipt, Subscription, User } from './types'
  *      если первый чек был «предоплата 100%»).
  *   4. Фискальные данные чеков из ЮKassa — для кабинета и админки.
  *   Независимо от ЮKassa: отмена счетов организаций, не оплаченных за
- *   REMIT_INVOICE_CANCEL_DAYS дней.
+ *   REMIT_INVOICE_CANCEL_DAYS дней, и напоминания об окончании подписки
+ *   без автопродления (за 7 дней и за день, у пробного периода — за 3 дня
+ *   и за день, и в течение 3 дней после окончания).
  *
  * Двойного списания не будет: у каждой попытки свой ключ идемпотентности и
  * свой id платежа, выведенные из подписки, даты окончания и номера попытки.
@@ -93,6 +101,8 @@ export interface BillingJobReport {
   receipts: number
   /** Отменено неоплаченных счетов организаций. */
   invoicesCanceled: number
+  /** Напоминаний об окончании подписки без автопродления. */
+  reminders: number
   errors: string[]
 }
 
@@ -104,14 +114,31 @@ const emptyReport = (): BillingJobReport => ({
   settlements: 0,
   receipts: 0,
   invoicesCanceled: 0,
+  reminders: 0,
   errors: [],
 })
 
 let running: Promise<BillingJobReport> | null = null
 let lastRunAt = 0
-let lastReport: { at: string; report: BillingJobReport } | null = null
+const LAST_REPORT_KEY = 'billing_jobs_last'
 
-export const lastBillingJobs = () => lastReport
+/**
+ * Итог последнего запуска. Хранится в settings, а не в памяти модуля: Next.js
+ * держит страницы, API и фоновый планировщик в разных бандлах, и админка
+ * иначе не видела бы запусков из планировщика и из API.
+ */
+export async function lastBillingJobs(): Promise<{ at: string; report: BillingJobReport } | null> {
+  try {
+    const raw = (await (await getStore()).getSettings())[LAST_REPORT_KEY]
+    return raw ? (JSON.parse(raw) as { at: string; report: BillingJobReport }) : null
+  } catch {
+    return null
+  }
+}
+
+async function saveLastReport(at: Date, report: BillingJobReport) {
+  await (await getStore()).setSetting(LAST_REPORT_KEY, JSON.stringify({ at: at.toISOString(), report }))
+}
 
 /** Попутный запуск: не чаще раза в десять минут на процесс. */
 export async function maybeRunBillingJobs(): Promise<void> {
@@ -133,8 +160,9 @@ export async function runBillingJobs(now = new Date()): Promise<BillingJobReport
       }
     }
     await step('счета', () => cancelStaleInvoices(now, report))
+    await step('напоминания', () => sendExpiryReminders(now, report))
     if (config.billing.provider !== 'yookassa' || !yookassaConfigured()) {
-      lastReport = { at: now.toISOString(), report }
+      await saveLastReport(now, report)
       return report
     }
     if (config.billing.autopay) {
@@ -150,7 +178,7 @@ export async function runBillingJobs(now = new Date()): Promise<BillingJobReport
       }
       await step('фискальные данные', () => syncReceipts(now, report))
     }
-    lastReport = { at: now.toISOString(), report }
+    await saveLastReport(now, report)
     return report
   })()
   try {
@@ -169,6 +197,67 @@ async function cancelStaleInvoices(now: Date, report: BillingJobReport) {
   for (const payment of await store.listStaleInvoices(before, 100)) {
     await store.savePayment({ ...payment, status: 'canceled', failureReason: 'invoice_expired' })
     report.invoicesCanceled += 1
+  }
+}
+
+/** Когда напоминать об окончании подписки без автопродления. */
+export const EXPIRY = {
+  paid: [
+    { stage: '1d' as const, beforeMs: DAY },
+    { stage: '7d' as const, beforeMs: 7 * DAY },
+  ],
+  trial: [
+    { stage: '1d' as const, beforeMs: DAY },
+    { stage: '3d' as const, beforeMs: 3 * DAY },
+  ],
+  /** «Подписка закончилась» — если прошло не больше. */
+  endedWithinMs: 3 * DAY,
+  /** Только что оформленной подписке «скоро закончится» не пишем. */
+  quietAfterStartMs: DAY,
+}
+
+const STAGE_ORDER: Record<ExpiryStage, number> = { '7d': 1, '3d': 1, '1d': 2, ended: 3 }
+
+/** Какое напоминание положено сейчас; null — никакое. */
+export function expiryStage(subscription: Subscription, now: Date): ExpiryStage | null {
+  const left = new Date(subscription.expiresAt).getTime() - now.getTime()
+  if (left <= 0) return -left <= EXPIRY.endedWithinMs ? 'ended' : null
+  if (now.getTime() - new Date(subscription.startedAt).getTime() < EXPIRY.quietAfterStartMs) return null
+  const stages = subscription.provider === 'trial' ? EXPIRY.trial : EXPIRY.paid
+  return stages.find((item) => left <= item.beforeMs)?.stage ?? null
+}
+
+/**
+ * Напоминания тем, у кого автопродления нет: подписка кончится, и человек
+ * внезапно упрётся в бесплатный тариф посреди рабочего дня.
+ */
+async function sendExpiryReminders(now: Date, report: BillingJobReport) {
+  const store = await getStore()
+  const from = new Date(now.getTime() - EXPIRY.endedWithinMs).toISOString()
+  const until = new Date(now.getTime() + EXPIRY.paid[EXPIRY.paid.length - 1].beforeMs).toISOString()
+  for (const subscription of await store.listExpiringSubscriptions(from, until)) {
+    const stage = expiryStage(subscription, now)
+    if (!stage) continue
+    const [sentStage, sentFor] = (subscription.expiryNoticeFor ?? '').split('@')
+    // Уже отправлено это или более позднее напоминание для этой даты окончания.
+    if (sentFor === subscription.expiresAt && STAGE_ORDER[sentStage as ExpiryStage] >= STAGE_ORDER[stage]) continue
+    const mark = () => store.saveSubscription({ ...subscription, expiryNoticeFor: `${stage}@${subscription.expiresAt}` })
+
+    const user = await store.findUserById(subscription.userId)
+    // Подписку сменила другая (повышение, новый тариф) — эта не заканчивается по-настоящему.
+    const current = await store.getActiveSubscription(subscription.userId)
+    if (!user || user.status !== 'active' || (current && current.id !== subscription.id)) {
+      await mark()
+      continue
+    }
+    const pendingInvoice =
+      (await store.listPaymentsByUser(user.id, 10)).find(
+        (payment) => payment.provider === 'invoice' && payment.status === 'pending',
+      ) ?? null
+    await sendExpiryReminder(user, subscription, stage, { autopay: autopayAvailable(), pendingInvoice })
+    // Отмечаем и без почтового сервера: иначе при его появлении пришла бы пачка писем.
+    await mark()
+    report.reminders += 1
   }
 }
 

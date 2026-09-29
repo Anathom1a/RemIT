@@ -44,7 +44,7 @@ export default async function AdminPaymentsPage() {
     emails.set(id, (await store.findUserById(id))?.email ?? '—')
   }
 
-  const jobs = lastBillingJobs()
+  const jobs = await lastBillingJobs()
   const missingInvoice = missingInvoiceFields()
   const pendingTotal = payments
     .filter((payment) => payment.status === 'pending')
@@ -66,9 +66,10 @@ export default async function AdminPaymentsPage() {
 
       <div className="card flex flex-wrap items-center justify-between gap-3 p-5">
         <p className="text-sm text-text-secondary">
-          Автопродление и чеки идут сами раз в 10 минут.{' '}
+          Автопродление, чеки, напоминания об окончании подписки и отмена просроченных счетов идут сами раз в 10
+          минут.{' '}
           {jobs
-            ? `Последний запуск ${formatDateTime(jobs.at)}: списано ${jobs.report.charged}, отказов ${jobs.report.failed}, предупреждений ${jobs.report.notices}, вторых чеков ${jobs.report.settlements}${jobs.report.errors.length ? `, ошибок ${jobs.report.errors.length}: ${jobs.report.errors[0]}` : ''}.`
+            ? `Последний запуск ${formatDateTime(jobs.at)}: списано ${jobs.report.charged}, отказов ${jobs.report.failed}, предупреждений ${jobs.report.notices}, вторых чеков ${jobs.report.settlements}, напоминаний ${jobs.report.reminders}, отменено счетов ${jobs.report.invoicesCanceled}${jobs.report.errors.length ? `, ошибок ${jobs.report.errors.length}: ${jobs.report.errors[0]}` : ''}.`
             : 'С момента запуска сайта ещё не выполнялись.'}
         </p>
         <ActionButton endpoint="/api/v1/admin/billing-jobs" label="Запустить сейчас" />

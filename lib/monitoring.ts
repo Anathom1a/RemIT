@@ -142,7 +142,7 @@ async function paymentsCheck(): Promise<CheckResult> {
 
 async function billingJobsCheck(): Promise<CheckResult> {
   if (config.billing.provider !== 'yookassa' || !yookassaConfigured()) return { status: 'skip', detail: '' }
-  const last = lastBillingJobs()
+  const last = await lastBillingJobs()
   if (!last) return { status: 'up', detail: 'ещё не запускались после старта' }
   if (last.report.errors.length) {
     return { status: 'degraded', detail: `ошибок: ${last.report.errors.length}; ${last.report.errors[0]}` }

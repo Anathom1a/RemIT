@@ -14,6 +14,7 @@ export type AutopayFields = Pick<
   | 'renewNextAt'
   | 'renewNoticeFor'
   | 'renewError'
+  | 'expiryNoticeFor'
 >
 
 /** Автопродление выключено, способа оплаты нет. */
@@ -26,6 +27,7 @@ export const AUTOPAY_OFF: AutopayFields & { autoRenew: false } = {
   renewNextAt: null,
   renewNoticeFor: null,
   renewError: '',
+  expiryNoticeFor: null,
 }
 
 export type PaymentExtras = Pick<

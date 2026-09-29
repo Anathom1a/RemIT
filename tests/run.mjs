@@ -135,6 +135,7 @@ const SUITES = {
       REMIT_LEGAL_SIGNER_TITLE: 'Генеральный директор',
     },
   },
+  reminders: { needs: ['smtp'], env: { ...SMTP_ENV, REMIT_SERVICE_TOKEN: 'svc-rem', REMIT_API_SERVER: SITE } },
   relays: {
     needs: ['hbb'],
     hbb: { relay: `${HOST}:21117`, token: 'svc-token-123' },

@@ -68,7 +68,7 @@ export async function readStore() {
 
 /**
  * Правка «со стороны» — только поля, которые тестам нужно сдвигать во
- * времени: сроки подписок и платежей. MemoryStore перечитает файл по mtime.
+ * времени: сроки подписок и платежей (и отметка автопродления). MemoryStore перечитает файл по mtime.
  */
 export async function editStore(mutate) {
   const snapshot = await readStore()
@@ -80,8 +80,14 @@ export async function editStore(mutate) {
     const db = getPool()
     for (const sub of snapshot.subscriptions) {
       const old = before.subscriptions.find((item) => item.id === sub.id)
-      if (old && (old.expiresAt !== sub.expiresAt || old.renewNextAt !== sub.renewNextAt)) {
-        await db.query('UPDATE subscriptions SET expires_at = $2, renew_next_at = $3 WHERE id = $1', [sub.id, sub.expiresAt, sub.renewNextAt])
+      if (old && (old.expiresAt !== sub.expiresAt || old.renewNextAt !== sub.renewNextAt || old.startedAt !== sub.startedAt || old.autoRenew !== sub.autoRenew)) {
+        await db.query('UPDATE subscriptions SET expires_at = $2, renew_next_at = $3, started_at = $4, auto_renew = $5 WHERE id = $1', [
+          sub.id,
+          sub.expiresAt,
+          sub.renewNextAt,
+          sub.startedAt,
+          sub.autoRenew,
+        ])
       }
     }
     for (const payment of snapshot.payments) {

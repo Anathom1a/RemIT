@@ -139,3 +139,51 @@ export async function sendInvoicePaid(user: User, payment: Payment, subscription
   )
   return sendMail({ to: documentRecipients(user, payment), subject: `${config.brand.name}: оплата получена, акт № ${payment.documentNumber}`, ...body })
 }
+
+export type ExpiryStage = '7d' | '3d' | '1d' | 'ended'
+
+/**
+ * Подписка без автопродления заканчивается или закончилась. Для пробного
+ * периода — свои слова: человек ещё ничего не покупал.
+ */
+export async function sendExpiryReminder(
+  user: User,
+  subscription: Subscription,
+  stage: ExpiryStage,
+  options: { autopay: boolean; pendingInvoice: Payment | null },
+) {
+  const plan = getPlan(subscription.plan)
+  const trial = subscription.provider === 'trial'
+  const date = formatDate(subscription.expiresAt)
+  const freeHours = Math.round(config.quota.freeSecondsPerDay / 3600)
+  const what = trial ? `Пробный период тарифа «${plan.name}»` : `Подписка ${config.brand.name} «${plan.name}»`
+  const lines: string[] = []
+
+  if (stage === 'ended') {
+    lines.push(
+      `${what} закончил${trial ? 'ся' : 'ась'} ${date}. Аккаунт перешёл на бесплатный тариф: ${freeHours} часа управления в сутки, одна сессия одновременно.`,
+      'Устройства, адресная книга и история подключений сохранены — после оплаты всё продолжит работать как раньше.',
+    )
+  } else {
+    lines.push(
+      `${what} ${stage === '1d' ? 'заканчивается завтра' : 'заканчивается'} — ${date}.`,
+      trial
+        ? `Чтобы работать без ограничений и дальше, выберите тариф. Если ничего не делать, аккаунт перейдёт на бесплатный тариф: ${freeHours} часа управления в сутки.`
+        : `Продлите её, чтобы не упереться в ограничения бесплатного тарифа (${freeHours} часа управления в сутки, одна сессия). Оплата прибавит срок к текущему — оплаченные дни не пропадут.`,
+    )
+  }
+  if (options.pendingInvoice) {
+    lines.push(
+      `Счёт № ${options.pendingInvoice.documentNumber} на ${formatPrice(options.pendingInvoice.amount)} ждёт оплаты — подписка продлится, как только деньги поступят.`,
+    )
+  } else if (options.autopay && !trial) {
+    lines.push('При оплате картой можно включить автопродление — тогда подписка будет продлеваться сама, без напоминаний.')
+  }
+
+  const subject =
+    stage === 'ended'
+      ? `${config.brand.name}: ${trial ? 'пробный период закончился' : 'подписка закончилась'}`
+      : `${config.brand.name}: ${trial ? 'пробный период' : 'подписка'} заканчивается ${stage === '1d' ? 'завтра' : date}`
+  const body = layout(user, lines, { label: trial ? 'Выбрать тариф' : 'Продлить подписку', url: cabinetUrl() })
+  return sendMail({ to: user.email, subject, ...body })
+}

@@ -156,6 +156,8 @@ export interface Store {
   getActiveSubscription(userId: string): Promise<Subscription | null>
   saveSubscription(subscription: Subscription): Promise<void>
   listActiveSubscriptions(): Promise<Subscription[]>
+  /** Подписки без автопродления, которые заканчиваются (или закончились) в интервале. */
+  listExpiringSubscriptions(from: string, until: string): Promise<Subscription[]>
   findSubscriptionById(id: string): Promise<Subscription | null>
   /** Подписки с автопродлением, у которых срок кончается в [from, until]. */
   listRenewalCandidates(from: string, until: string): Promise<Subscription[]>
