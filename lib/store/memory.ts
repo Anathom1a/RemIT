@@ -94,6 +94,16 @@ export class MemoryStore implements Store {
   private leads = new Map<string, Lead>()
   private tickets = new Map<string, SupportTicket>()
   private loadedMtimeMs = -1
+  /**
+   * Записи идут по очереди: параллельные запросы (и after() в том же
+   * процессе) иначе писали через один и тот же временный файл, а чтение
+   * посреди чужой записи возвращало старый снимок и затирало свежие изменения.
+   */
+  private writeChain: Promise<void> = Promise.resolve()
+  private pendingWrites = 0
+  private writeCounter = 0
+  /** mtime файлов, записанных этим процессом: их перечитывать не нужно. */
+  private ownMtimes = new Set<number>()
 
   constructor(private readonly file: string) {}
 
@@ -111,6 +121,12 @@ export class MemoryStore implements Store {
       return // Файла ещё нет — работаем с тем, что в памяти.
     }
     if (mtimeMs === this.loadedMtimeMs) return
+    // Пока наша запись в пути, память новее файла.
+    if (this.pendingWrites > 0) return
+    if (this.ownMtimes.has(mtimeMs)) {
+      this.loadedMtimeMs = mtimeMs
+      return
+    }
 
     try {
       const snapshot = JSON.parse(await fs.readFile(target, 'utf8')) as Partial<Snapshot>
@@ -179,16 +195,28 @@ export class MemoryStore implements Store {
       tickets: [...this.tickets.values()],
     }
     const target = path.resolve(this.file)
-    try {
-      await fs.mkdir(path.dirname(target), { recursive: true })
-      // Запись через временный файл: читатель никогда не увидит половину снимка.
-      const temporary = `${target}.${process.pid}.tmp`
-      await fs.writeFile(temporary, JSON.stringify(snapshot, null, 2), 'utf8')
-      await fs.rename(temporary, target)
-      this.loadedMtimeMs = (await fs.stat(target)).mtimeMs
-    } catch {
-      // Файловая система может быть только для чтения — работаем из памяти.
-    }
+    // Снимок берём сейчас, пишем по очереди: последним ляжет самый свежий.
+    const content = JSON.stringify(snapshot, null, 2)
+    const temporary = `${target}.${process.pid}.${this.writeCounter++}.tmp`
+    this.pendingWrites += 1
+    const write = this.writeChain.then(async () => {
+      try {
+        await fs.mkdir(path.dirname(target), { recursive: true })
+        // Запись через временный файл: читатель никогда не увидит половину снимка.
+        await fs.writeFile(temporary, content, 'utf8')
+        await fs.rename(temporary, target)
+        const mtime = (await fs.stat(target)).mtimeMs
+        this.ownMtimes.add(mtime)
+        if (this.ownMtimes.size > 100) this.ownMtimes.delete(this.ownMtimes.values().next().value as number)
+        this.loadedMtimeMs = mtime
+      } catch {
+        // Файловая система может быть только для чтения — работаем из памяти.
+      }
+    })
+    this.writeChain = write.finally(() => {
+      this.pendingWrites -= 1
+    })
+    await this.writeChain
   }
 
   async createUser(user: User): Promise<void> {

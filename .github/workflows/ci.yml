@@ -1,0 +1,114 @@
+name: Проверки
+
+# На каждый PR и push в main: типы, сборка, маршруты nginx и сквозные тесты
+# (tests/run.mjs) — на JSON-хранилище и на Postgres, с настоящими hbbs/hbbr,
+# собранными с патчами RemIT.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Типы, сборка, маршруты
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Проверка типов
+        run: npm run typecheck
+      - name: Сборка
+        run: npm run build
+      - name: Маршруты nginx и API клиента
+        run: python3 server/nginx/check-routes.py
+      - name: Синтаксис скриптов
+        run: |
+          for script in server/*.sh server/monitor/*.sh client/fork/remit/*.sh; do bash -n "$script"; done
+          for suite in tests/*.mjs tests/lib/*.mjs tests/suites/*.mjs tests/fakes/*.mjs; do node --check "$suite"; done
+
+  hbb:
+    name: hbbs и hbbr с патчами
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: remit
+      - name: rustdesk-server (ветка forapi)
+        uses: actions/checkout@v4
+        with:
+          repository: lejianwen/rustdesk-server
+          ref: forapi
+          submodules: recursive
+          path: rustdesk-server
+      - name: Патчи RemIT
+        run: |
+          python3 remit/client/patches/hbbs-quota-hook.py rustdesk-server/src/rendezvous_server.rs
+          python3 remit/client/patches/server-cmd-hook.py rustdesk-server/src
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rustdesk-server
+          key: ${{ hashFiles('remit/client/patches/*.py') }}
+      - name: Сборка
+        run: cargo build --manifest-path rustdesk-server/Cargo.toml --release --bin hbbs --bin hbbr
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hbb
+          path: |
+            rustdesk-server/target/release/hbbs
+            rustdesk-server/target/release/hbbr
+          retention-days: 3
+
+  tests:
+    name: Сквозные тесты (${{ matrix.store }})
+    needs: hbb
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [file, postgres]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: pg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/download-artifact@v4
+        with:
+          name: hbb
+          path: .hbb
+      - name: Тесты
+        env:
+          HBBS_BIN: ${{ github.workspace }}/.hbb/hbbs
+          HBBR_BIN: ${{ github.workspace }}/.hbb/hbbr
+          TEST_DATABASE_URL: postgres://postgres:pg@127.0.0.1:5432/postgres
+        run: |
+          chmod +x .hbb/hbbs .hbb/hbbr
+          if [ "${{ matrix.store }}" = "postgres" ]; then node tests/run.mjs --pg; else node tests/run.mjs; fi
