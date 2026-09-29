@@ -6,6 +6,8 @@ import { formatPrice, getPlan } from '@/lib/plans'
 import { formatDate, formatDateTime } from '@/lib/time'
 import { config } from '@/lib/config'
 import { failureText, lastBillingJobs } from '@/lib/billing-jobs'
+import { refundedAmount } from '@/lib/billing-model'
+import { RefundForm } from '@/components/admin/refund-form'
 import type { Payment } from '@/lib/types'
 
 /** Чеки платежа коротко: сколько выдано и ждёт ли второй чек. */
@@ -110,6 +112,12 @@ export default async function AdminPaymentsPage() {
                 <span className={STATUS[payment.status]?.className ?? ''}>
                   {STATUS[payment.status]?.label ?? payment.status}
                   {payment.recurring && <span className="text-text-muted"> · автосписание</span>}
+                  {refundedAmount(payment) > 0 && (
+                    <span className="block text-xs text-warning">
+                      возвращено {formatPrice(refundedAmount(payment))}
+                      {payment.refunds.some((refund) => refund.status === 'pending') ? ' (проводится)' : ''}
+                    </span>
+                  )}
                   {payment.status === 'canceled' && payment.failureReason && (
                     <span className="block text-xs text-text-muted">{failureText(payment.failureReason)}</span>
                   )}
@@ -142,6 +150,12 @@ export default async function AdminPaymentsPage() {
                       variant="danger"
                     />
                   </>
+                ) : payment.status === 'succeeded' && payment.amount - refundedAmount(payment) > 0 ? (
+                  <RefundForm
+                    paymentId={payment.id}
+                    remaining={payment.amount - refundedAmount(payment)}
+                    viaProvider={payment.provider === 'yookassa' && Boolean(payment.providerPaymentId)}
+                  />
                 ) : null,
             },
           ]}

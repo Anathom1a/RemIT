@@ -5,6 +5,7 @@ import { calculateAmount, markPaymentPaid, paymentDescription, sendPaymentToYook
 import { sendRenewalFailed, sendRenewalNotice, sendRenewalSucceeded } from './billing-mail'
 import { getPlan, isFreePlan } from './plans'
 import { getStore } from './store'
+import { syncPendingRefunds } from './refunds'
 import {
   YookassaError,
   createSettlementReceipt,
@@ -130,6 +131,9 @@ export async function runBillingJobs(now = new Date()): Promise<BillingJobReport
       await step('предупреждения', () => sendNotices(now, report))
       await step('автосписания', () => chargeDue(now, report))
     }
+    await step('возвраты', async () => {
+      await syncPendingRefunds()
+    })
     if (config.billing.receipts.enabled) {
       if (config.billing.receipts.mode === 'prepayment') {
         await step('вторые чеки', () => issueSettlements(now, report))

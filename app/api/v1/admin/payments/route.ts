@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { denyIfNotAdmin } from '@/lib/admin'
 import { markPaymentPaid } from '@/lib/billing'
+import { getCurrentUser } from '@/lib/auth'
+import { RefundError, refundPayment } from '@/lib/refunds'
 import { getStore } from '@/lib/store'
 
 export const dynamic = 'force-dynamic'
@@ -24,7 +26,10 @@ export async function GET(request: Request) {
   return NextResponse.json({ payments: rows })
 }
 
-/** Подтверждение оплаты по счёту и отмена зависшего платежа. */
+/**
+ * Подтверждение оплаты по счёту, отмена зависшего платежа и возврат:
+ * {paymentId, action: "refund", amount: "890.00", reason, cancelSubscription}.
+ */
 export async function POST(request: Request) {
   const denied = await denyIfNotAdmin(request)
   if (denied) return denied
@@ -36,6 +41,23 @@ export async function POST(request: Request) {
   const store = await getStore()
   const payment = await store.findPaymentById(paymentId)
   if (!payment) return NextResponse.json({ error: 'Платёж не найден' }, { status: 404 })
+
+  if (action === 'refund') {
+    const admin = await getCurrentUser()
+    try {
+      const updated = await refundPayment(payment.id, {
+        // В форме — рубли, внутри — копейки.
+        amount: Math.round(Number.parseFloat(String(payload.amount ?? '0').replace(',', '.')) * 100),
+        reason: String(payload.reason ?? ''),
+        cancelSubscription: payload.cancelSubscription === true,
+        adminEmail: admin?.email ?? 'service',
+      })
+      return NextResponse.json({ ok: true, payment: updated })
+    } catch (error) {
+      if (error instanceof RefundError) return NextResponse.json({ error: error.message }, { status: 400 })
+      throw error
+    }
+  }
 
   if (action === 'cancel') {
     if (payment.status === 'succeeded') {

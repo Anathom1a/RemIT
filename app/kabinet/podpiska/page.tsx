@@ -12,6 +12,7 @@ import {
   type UpgradeQuote,
 } from '@/lib/billing'
 import { RENEWAL } from '@/lib/billing-jobs'
+import { refundedAmount } from '@/lib/billing-model'
 import type { Payment } from '@/lib/types'
 import { getCurrentUser } from '@/lib/auth'
 import { getLimitNotice } from '@/lib/limit-notice'
@@ -352,8 +353,12 @@ export default async function SubscriptionPage({
             {
               key: 'status',
               header: 'Статус',
-              render: (payment) =>
-                `${STATUS_LABELS[payment.status] ?? payment.status}${payment.recurring ? ' · автопродление' : ''}`,
+              render: (payment) => {
+                const refunded = refundedAmount(payment)
+                return `${STATUS_LABELS[payment.status] ?? payment.status}${payment.recurring ? ' · автопродление' : ''}${
+                  refunded > 0 ? ` · возвращено ${formatPrice(refunded)}` : ''
+                }`
+              },
             },
             { key: 'receipt', header: 'Чек', render: (payment) => <ReceiptCell payment={payment} /> },
           ]}

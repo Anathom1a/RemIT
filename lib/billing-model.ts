@@ -39,6 +39,7 @@ export type PaymentExtras = Pick<
   | 'serviceEndsAt'
   | 'settlement'
   | 'receipts'
+  | 'refunds'
 >
 
 export function paymentExtras(): PaymentExtras {
@@ -52,8 +53,13 @@ export function paymentExtras(): PaymentExtras {
     serviceEndsAt: null,
     settlement: '',
     receipts: [],
+    refunds: [],
   }
 }
+
+/** Сколько уже вернули (и возвращается) по платежу. */
+export const refundedAmount = (payment: Payment) =>
+  (payment.refunds ?? []).filter((refund) => refund.status !== 'canceled').reduce((sum, refund) => sum + refund.amount, 0)
 
 /** Дополняет запись из старого снимка хранилища недостающими полями. */
 export function normalizeSubscription(subscription: Subscription): Subscription {
@@ -68,5 +74,6 @@ export function normalizePayment(payment: Payment): Payment {
     fromPlan: payment.fromPlan ?? null,
     upgradeUntil: payment.upgradeUntil ?? null,
     receipts: payment.receipts ?? [],
+    refunds: payment.refunds ?? [],
   }
 }

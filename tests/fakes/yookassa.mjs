@@ -6,6 +6,7 @@ import { randomBytes } from 'node:crypto'
 const PORT = Number(process.env.PORT ?? 21992)
 const AUTH = 'Basic ' + Buffer.from('shop1:sk_test').toString('base64')
 const payments = new Map()
+const refunds = new Map()
 const receipts = [] // {id, payment_id, type, status, items, settlements, ...}
 const byKey = new Map() // Idempotence-Key -> response body
 const savedMethods = new Map() // id -> {revoked}
@@ -131,6 +132,19 @@ http
         byKey.set(key, p)
         return json(res, 200, p)
       }
+      if (path === '/refunds') {
+        const p = payments.get(body.payment_id)
+        if (!p || p.status !== 'succeeded') return json(res, 400, { type: 'error', code: 'invalid_request', description: 'payment not refundable' })
+        const value = Number.parseFloat(body.amount?.value ?? '0')
+        const already = Number.parseFloat(p.refunded_amount?.value ?? '0')
+        if (value + already > Number.parseFloat(p.amount.value) + 1e-9) return json(res, 400, { type: 'error', code: 'invalid_request', description: 'refund exceeds payment' })
+        const refund = { id: 'rf_' + randomBytes(6).toString('hex'), status: control.refundStatus || 'succeeded', amount: body.amount, payment_id: p.id, description: body.description }
+        refunds.set(refund.id, refund)
+        p.refunded_amount = { value: (already + value).toFixed(2), currency: 'RUB' }
+        if (body.receipt) addReceipt(p, { type: 'refund', items: body.receipt.items })
+        byKey.set(key, refund)
+        return json(res, 200, refund)
+      }
       if (path === '/receipts') {
         const p = payments.get(body.payment_id)
         if (!p) return json(res, 400, { type: 'error', code: 'invalid_request', description: 'payment not found' })
@@ -141,6 +155,11 @@ http
       return json(res, 404, {})
     }
 
+    if (path.startsWith('/refunds/')) {
+      const refund = refunds.get(path.slice(9))
+      if (refund && control.refundSettle) refund.status = 'succeeded'
+      return refund ? json(res, 200, refund) : json(res, 404, { type: 'error', code: 'not_found' })
+    }
     if (path.startsWith('/payments/')) {
       const p = payments.get(path.slice(10))
       return p ? json(res, 200, p) : json(res, 404, { type: 'error', code: 'not_found' })

@@ -38,6 +38,7 @@ import type {
   MonitorStatus,
   PaymentKind,
   PaymentReceipt,
+  PaymentRefund,
   PaymentStatus,
   SettlementState,
   SubscriptionStatus,
@@ -53,7 +54,7 @@ const iso = (value: Date | string | null): string | null =>
 const PAYMENT_FIELDS = [
   'id', 'user_id', 'plan', 'months', 'amount', 'status', 'provider', 'provider_payment_id', 'confirmation_url',
   'created_at', 'paid_at', 'kind', 'from_plan', 'upgrade_until', 'recurring', 'save_method', 'subscription_id',
-  'idempotence_key', 'failure_reason', 'receipt_email', 'service_ends_at', 'settlement', 'receipts',
+  'idempotence_key', 'failure_reason', 'receipt_email', 'service_ends_at', 'settlement', 'receipts', 'refunds',
 ]
 const PAYMENT_COLUMNS = PAYMENT_FIELDS.join(', ')
 const PAYMENT_VALUES = PAYMENT_FIELDS.map((_, index) => `$${index + 1}`).join(', ')
@@ -83,6 +84,7 @@ function paymentParams(payment: Payment): unknown[] {
     payment.serviceEndsAt,
     payment.settlement,
     JSON.stringify(payment.receipts ?? []),
+    JSON.stringify(payment.refunds ?? []),
   ]
 }
 
@@ -184,6 +186,7 @@ export class PostgresStore implements Store {
       serviceEndsAt: iso(row.service_ends_at ?? null),
       settlement: (row.settlement ?? '') as SettlementState,
       receipts: (row.receipts ?? []) as PaymentReceipt[],
+      refunds: (row.refunds ?? []) as PaymentRefund[],
     }
   }
 
@@ -1020,7 +1023,8 @@ export class PostgresStore implements Store {
          failure_reason = EXCLUDED.failure_reason,
          service_ends_at = EXCLUDED.service_ends_at,
          settlement = EXCLUDED.settlement,
-         receipts = EXCLUDED.receipts`,
+         receipts = EXCLUDED.receipts,
+         refunds = EXCLUDED.refunds`,
       paymentParams(payment),
     )
   }

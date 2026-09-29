@@ -350,6 +350,21 @@ export interface Payment {
   serviceEndsAt: string | null
   settlement: SettlementState
   receipts: PaymentReceipt[]
+  /** Возвраты: полный или несколько частичных. */
+  refunds: PaymentRefund[]
+}
+
+/** Возврат по платежу. У ЮKassa — со своим чеком возврата. */
+export interface PaymentRefund {
+  id: string
+  /** Номер возврата в ЮKassa; пусто — возврат по счёту, отмечен вручную. */
+  providerRefundId: string
+  amount: number
+  status: 'pending' | 'succeeded' | 'canceled'
+  reason: string
+  createdAt: string
+  /** Кто оформил (администратор). */
+  createdBy: string
 }
 
 /**

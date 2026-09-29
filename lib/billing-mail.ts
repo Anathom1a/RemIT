@@ -84,3 +84,22 @@ export async function sendRenewalFailed(
   const body = layout(user, lines, { label: 'Продлить подписку', url: cabinetUrl() })
   return sendMail({ to: user.email, subject: `${config.brand.name}: не удалось продлить подписку`, ...body })
 }
+
+/** Возврат оформлен. */
+export async function sendRefundNotice(
+  user: User,
+  payment: { amount: number; plan: Subscription['plan'] },
+  refund: { amount: number; status: string; providerRefundId: string },
+  canceled: boolean,
+) {
+  const plan = getPlan(payment.plan)
+  const lines = [
+    `Оформили возврат ${formatPrice(refund.amount)} за подписку ${config.brand.name} «${plan.name}».`,
+    refund.providerRefundId
+      ? 'Деньги вернутся тем же способом, которым вы платили: на карту — обычно за несколько дней, срок зависит от банка. Чек возврата придёт отдельным письмом.'
+      : 'Деньги вернём переводом на реквизиты, с которых пришла оплата.',
+    canceled ? 'Подписка отключена, аккаунт перешёл на бесплатный тариф.' : 'Подписка продолжает действовать.',
+  ]
+  const body = layout(user, lines, { label: 'Открыть кабинет', url: cabinetUrl() })
+  return sendMail({ to: user.email, subject: `${config.brand.name}: возврат оформлен`, ...body })
+}

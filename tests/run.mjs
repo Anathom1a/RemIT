@@ -98,6 +98,19 @@ const SUITES = {
       YOOKASSA_RETURN_URL: `${SITE}/kabinet/podpiska`,
     },
   },
+  refunds: {
+    needs: ['yookassa', 'smtp'],
+    env: {
+      ...SMTP_ENV,
+      REMIT_SERVICE_TOKEN: 'svc-pay',
+      REMIT_BILLING_PROVIDER: 'yookassa',
+      YOOKASSA_SHOP_ID: 'shop1',
+      YOOKASSA_SECRET_KEY: 'sk_test',
+      YOOKASSA_API_URL: `http://127.0.0.1:${PORTS.yookassa}/v3`,
+      YOOKASSA_VAT_CODE: '11',
+      YOOKASSA_RETURN_URL: `${SITE}/kabinet/podpiska`,
+    },
+  },
   relays: {
     needs: ['hbb'],
     hbb: { relay: `${HOST}:21117`, token: 'svc-token-123' },

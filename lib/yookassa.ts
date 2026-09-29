@@ -218,3 +218,38 @@ export async function createSettlementReceipt(input: {
 export async function pingYookassa(): Promise<void> {
   await call('GET', '/me')
 }
+
+export interface YookassaRefund {
+  id: string
+  status: 'pending' | 'succeeded' | 'canceled'
+  amount: number
+}
+
+function toRefund(data: any): YookassaRefund {
+  const status = ['pending', 'succeeded', 'canceled'].includes(data.status) ? data.status : 'pending'
+  return { id: String(data.id ?? ''), status, amount: kopecks(data.amount?.value) }
+}
+
+/**
+ * Возврат по платежу. С блоком receipt ЮKassa сама выбьет чек возврата
+ * («Чеки от ЮKassa» или подключённая касса).
+ */
+export async function createRefund(input: {
+  paymentId: string
+  amount: number
+  description: string
+  idempotenceKey: string
+  receipt: ReturnType<typeof receiptBlock> | null
+}): Promise<YookassaRefund> {
+  const body: Record<string, unknown> = {
+    payment_id: input.paymentId,
+    amount: { value: rubles(input.amount), currency: 'RUB' },
+    description: input.description.slice(0, 250),
+  }
+  if (input.receipt) body.receipt = input.receipt
+  return toRefund(await call('POST', '/refunds', body, input.idempotenceKey))
+}
+
+export async function getRefund(id: string): Promise<YookassaRefund> {
+  return toRefund(await call('GET', `/refunds/${encodeURIComponent(id)}`))
+}

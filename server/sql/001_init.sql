@@ -192,6 +192,7 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipt_email TEXT NOT NULL DEFAUL
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS service_ends_at TIMESTAMPTZ;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS settlement TEXT NOT NULL DEFAULT '';
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipts JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS refunds JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_settlement_idx ON payments(service_ends_at) WHERE settlement = 'due';
