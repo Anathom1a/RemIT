@@ -4,6 +4,7 @@ import type { Pool } from 'pg'
 import type { Store } from './index'
 import type {
   ClientAlarm,
+  Company,
   DeviceGroup,
   OAuthIdentity,
   OAuthState,
@@ -55,6 +56,7 @@ const PAYMENT_FIELDS = [
   'id', 'user_id', 'plan', 'months', 'amount', 'status', 'provider', 'provider_payment_id', 'confirmation_url',
   'created_at', 'paid_at', 'kind', 'from_plan', 'upgrade_until', 'recurring', 'save_method', 'subscription_id',
   'idempotence_key', 'failure_reason', 'receipt_email', 'service_ends_at', 'settlement', 'receipts', 'refunds',
+  'document_number', 'buyer', 'concurrent_sessions',
 ]
 const PAYMENT_COLUMNS = PAYMENT_FIELDS.join(', ')
 const PAYMENT_VALUES = PAYMENT_FIELDS.map((_, index) => `$${index + 1}`).join(', ')
@@ -85,6 +87,9 @@ function paymentParams(payment: Payment): unknown[] {
     payment.settlement,
     JSON.stringify(payment.receipts ?? []),
     JSON.stringify(payment.refunds ?? []),
+    payment.documentNumber ?? '',
+    payment.buyer ? JSON.stringify(payment.buyer) : null,
+    payment.concurrentSessions ?? null,
   ]
 }
 
@@ -187,6 +192,9 @@ export class PostgresStore implements Store {
       settlement: (row.settlement ?? '') as SettlementState,
       receipts: (row.receipts ?? []) as PaymentReceipt[],
       refunds: (row.refunds ?? []) as PaymentRefund[],
+      documentNumber: row.document_number ?? '',
+      buyer: (row.buyer ?? null) as Company | null,
+      concurrentSessions: row.concurrent_sessions ?? null,
     }
   }
 
@@ -1024,7 +1032,8 @@ export class PostgresStore implements Store {
          service_ends_at = EXCLUDED.service_ends_at,
          settlement = EXCLUDED.settlement,
          receipts = EXCLUDED.receipts,
-         refunds = EXCLUDED.refunds`,
+         refunds = EXCLUDED.refunds,
+         document_number = EXCLUDED.document_number`,
       paymentParams(payment),
     )
   }
@@ -1063,6 +1072,15 @@ export class PostgresStore implements Store {
          AND (receipts = '[]'::jsonb OR receipts @> '[{"status":"pending"}]'::jsonb)
        ORDER BY paid_at DESC LIMIT $2`,
       [since, limit],
+    )
+    return rows.map((row) => this.toPayment(row))
+  }
+
+  async listStaleInvoices(before: string, limit: number): Promise<Payment[]> {
+    const rows = await this.query(
+      `SELECT * FROM payments WHERE provider = 'invoice' AND status = 'pending' AND created_at < $1
+       ORDER BY created_at LIMIT $2`,
+      [before, limit],
     )
     return rows.map((row) => this.toPayment(row))
   }
@@ -1336,6 +1354,34 @@ export class PostgresStore implements Store {
   async purgeMonitor(beforeDay: string, beforeAt: string): Promise<void> {
     await this.query('DELETE FROM monitor_days WHERE day < $1', [beforeDay])
     await this.query('DELETE FROM monitor_events WHERE at < $1', [beforeAt])
+  }
+
+  async findCompany(userId: string): Promise<Company | null> {
+    const [row] = await this.query<{ data: Company }>('SELECT data FROM companies WHERE user_id = $1', [userId])
+    return row ? row.data : null
+  }
+
+  async saveCompany(company: Company): Promise<void> {
+    await this.query(
+      `INSERT INTO companies (user_id, data, updated_at) VALUES ($1, $2, $3)
+       ON CONFLICT (user_id) DO UPDATE SET data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
+      [company.userId, JSON.stringify(company), company.updatedAt],
+    )
+  }
+
+  async deleteCompany(userId: string): Promise<void> {
+    await this.query('DELETE FROM companies WHERE user_id = $1', [userId])
+  }
+
+  async nextSequence(name: string): Promise<number> {
+    // Счётчик живёт в settings: одна строка, атомарный инкремент.
+    const [row] = await this.query<{ value: string }>(
+      `INSERT INTO settings (key, value, updated_at) VALUES ($1, '1', now())
+       ON CONFLICT (key) DO UPDATE SET value = ((settings.value)::bigint + 1)::text, updated_at = now()
+       RETURNING value`,
+      [`sequence:${name}`],
+    )
+    return Number(row.value)
   }
 
   async getSettings(): Promise<Record<string, string>> {

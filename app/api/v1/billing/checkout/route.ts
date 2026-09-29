@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
-import { CheckoutError, createCheckout } from '@/lib/billing'
+import { CheckoutError, createCheckout, createInvoice } from '@/lib/billing'
+import { sendInvoiceIssued } from '@/lib/billing-mail'
 import { paymentBlockedReason } from '@/lib/email-verification'
 import { PLANS_BY_ID, getPlan, type PlanId } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
 
-/** Создаёт заказ на подписку и возвращает ссылку на оплату. */
+/** Создаёт заказ на подписку и возвращает ссылку на оплату; method: "invoice" — счёт организации. */
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -32,6 +33,12 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Организация: счёт с реквизитами вместо страницы оплаты картой.
+    if (payload.method === 'invoice') {
+      const payment = await createInvoice(user, { plan, months })
+      await sendInvoiceIssued(user, payment)
+      return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl: payment.confirmationUrl })
+    }
     const { payment, redirectUrl } = await createCheckout(user, plan, months, { autoRenew: payload.autoRenew === true })
     return NextResponse.json({ paymentId: payment.id, amount: payment.amount, redirectUrl })
   } catch (error) {

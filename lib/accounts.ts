@@ -62,6 +62,8 @@ export async function deleteAccount(userId: string): Promise<void> {
   for (const device of await store.listDevicesByUser(userId)) await store.setDeviceOwner(device.rustdeskId, null)
   for (const identity of await store.listOAuthIdentities(userId)) await store.deleteOAuthIdentity(identity.provider, userId)
   await store.deleteWebSharesByUser(userId)
+  // Реквизиты организации: в оплаченных счетах и актах остаётся их копия.
+  await store.deleteCompany(userId)
   // Сохранённую карту забываем: после удаления аккаунта списаний не будет.
   await disableAutopay(userId, 'аккаунт удалён')
 

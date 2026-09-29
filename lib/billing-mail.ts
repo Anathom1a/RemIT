@@ -2,7 +2,8 @@ import { config } from './config'
 import { escapeHtml, sendMail } from './mail'
 import { formatPrice, getPlan } from './plans'
 import { formatDate } from './time'
-import type { Subscription, User } from './types'
+import { documentUrl } from './documents'
+import type { Payment, Subscription, User } from './types'
 
 /**
  * Письма об автопродлении. Предупреждение перед списанием обязательно:
@@ -102,4 +103,39 @@ export async function sendRefundNotice(
   ]
   const body = layout(user, lines, { label: 'Открыть кабинет', url: cabinetUrl() })
   return sendMail({ to: user.email, subject: `${config.brand.name}: возврат оформлен`, ...body })
+}
+
+/** Кому слать документы: владелец аккаунта и бухгалтерия, если указана. */
+function documentRecipients(user: User, payment: Payment): string {
+  return [...new Set([user.email, payment.buyer?.documentsEmail].filter(Boolean))].join(', ')
+}
+
+/** Счёт выставлен: ссылка на счёт и срок оплаты. */
+export async function sendInvoiceIssued(user: User, payment: Payment) {
+  const plan = getPlan(payment.plan)
+  const due = new Date(new Date(payment.createdAt).getTime() + config.billing.invoices.validDays * 24 * 60 * 60 * 1000)
+  const body = layout(
+    user,
+    [
+      `Выставили счёт № ${payment.documentNumber} на ${formatPrice(payment.amount)} для ${payment.buyer?.name ?? 'организации'}: подписка ${config.brand.name} «${plan.name}» на ${payment.months} мес.`,
+      `Оплатите его до ${formatDate(due.toISOString())} переводом с расчётного счёта организации; в назначении платежа укажите номер счёта. Подписка включится, как только деньги поступят, — пришлём письмо и акт.`,
+    ],
+    { label: 'Открыть счёт', url: documentUrl(payment, 'schet') },
+  )
+  return sendMail({ to: documentRecipients(user, payment), subject: `${config.brand.name}: счёт № ${payment.documentNumber}`, ...body })
+}
+
+/** Оплата по счёту получена: подписка включена, акт готов. */
+export async function sendInvoicePaid(user: User, payment: Payment, subscription: Subscription) {
+  const plan = getPlan(payment.plan)
+  const body = layout(
+    user,
+    [
+      `Получили оплату по счёту № ${payment.documentNumber} — ${formatPrice(payment.amount)}. Подписка ${config.brand.name} «${plan.name}» действует до ${formatDate(subscription.expiresAt)}.`,
+      `Акт № ${payment.documentNumber}: ${documentUrl(payment, 'akt')}`,
+      'Счёт и акт всегда можно открыть в кабинете, в разделе «Подписка».',
+    ],
+    { label: 'Открыть кабинет', url: cabinetUrl() },
+  )
+  return sendMail({ to: documentRecipients(user, payment), subject: `${config.brand.name}: оплата получена, акт № ${payment.documentNumber}`, ...body })
 }

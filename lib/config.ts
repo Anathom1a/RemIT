@@ -51,9 +51,21 @@ export const config = {
     /** ОГРН для организации или ОГРНИП для предпринимателя. */
     ogrn: env('REMIT_LEGAL_OGRN'),
     address: env('REMIT_LEGAL_ADDRESS'),
-    /** Банковские реквизиты одной строкой: банк, БИК, р/с, к/с. */
+    /** Банковские реквизиты одной строкой: банк, БИК, р/с, к/с. Пусто — собираются из полей ниже. */
     bank: env('REMIT_LEGAL_BANK'),
     phone: env('REMIT_LEGAL_PHONE'),
+    /** КПП — только у организации. */
+    kpp: env('REMIT_LEGAL_KPP'),
+    /** Реквизиты для счетов по отдельности: без них счёт не выставляется. */
+    bankName: env('REMIT_LEGAL_BANK_NAME'),
+    bik: env('REMIT_LEGAL_BIK'),
+    account: env('REMIT_LEGAL_ACCOUNT'),
+    corrAccount: env('REMIT_LEGAL_CORR_ACCOUNT'),
+    /** Кто подписывает счета и акты: «Иванов И. И.» и должность. */
+    signer: env('REMIT_LEGAL_SIGNER'),
+    signerTitle: env('REMIT_LEGAL_SIGNER_TITLE', 'Руководитель'),
+    /** Ставка НДС в документах: none — «Без НДС» (УСН), иначе число процентов (22, 10, 5…). */
+    vat: env('REMIT_LEGAL_VAT', 'none'),
   },
 
   /**
@@ -214,6 +226,18 @@ export const config = {
 
   billing: {
     provider: env('REMIT_BILLING_PROVIDER', 'yookassa') as 'manual' | 'yookassa',
+    /**
+     * Оплата по счёту для организаций: счёт и акт формируются на сайте,
+     * поступление на расчётный счёт отмечает администратор. Работает, когда
+     * заполнены банковские реквизиты (REMIT_LEGAL_BIK и др.).
+     */
+    invoices: {
+      enabled: env('REMIT_INVOICES', 'true') !== 'false',
+      /** Сколько дней счёт действителен (срок оплаты в самом счёте). */
+      validDays: envInt('REMIT_INVOICE_DAYS', 5),
+      /** Неоплаченный счёт отменяется через столько дней после выставления. */
+      cancelAfterDays: envInt('REMIT_INVOICE_CANCEL_DAYS', 30),
+    },
     yookassa: {
       shopId: env('YOOKASSA_SHOP_ID'),
       secretKey: env('YOOKASSA_SECRET_KEY'),

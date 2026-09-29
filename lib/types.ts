@@ -352,6 +352,30 @@ export interface Payment {
   receipts: PaymentReceipt[]
   /** Возвраты: полный или несколько частичных. */
   refunds: PaymentRefund[]
+  /** Номер счёта и акта («2026-00017»); пусто — документов нет. */
+  documentNumber: string
+  /** Реквизиты покупателя-организации на момент заказа. */
+  buyer: Company | null
+  /** Согласованный лимит сессий, который включит оплата (корпоративный счёт). */
+  concurrentSessions: number | null
+}
+
+/**
+ * Реквизиты организации или ИП, на которую выставляются счета и акты.
+ * Одна на аккаунт; в платёж копируется, чтобы документы не менялись задним числом.
+ */
+export interface Company {
+  userId: string
+  /** Полное наименование: «ООО „Ромашка“», «ИП Петров Пётр Петрович». */
+  name: string
+  inn: string
+  /** У ИП КПП нет. */
+  kpp: string
+  ogrn: string
+  address: string
+  /** Куда дополнительно слать счета и акты — бухгалтерия. */
+  documentsEmail: string
+  updatedAt: string
 }
 
 /** Возврат по платежу. У ЮKassa — со своим чеком возврата. */

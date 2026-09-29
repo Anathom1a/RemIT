@@ -4,6 +4,7 @@ import { normalizePayment, normalizeSubscription } from '../billing-model'
 import type { Store } from './index'
 import type {
   ClientAlarm,
+  Company,
   EmailVerification,
   Incident,
   MonitorDay,
@@ -54,6 +55,7 @@ interface Snapshot {
   connSessions: ConnSession[]
   usage: UsageDay[]
   settings: Record<string, string>
+  companies: Company[]
   releases: Release[]
   leads: Lead[]
   tickets: SupportTicket[]
@@ -93,6 +95,7 @@ export class MemoryStore implements Store {
   private connSessions = new Map<string, ConnSession>()
   private usage = new Map<string, UsageDay>()
   private settings: Record<string, string> = {}
+  private companies = new Map<string, Company>()
   private releases = new Map<string, Release>()
   private leads = new Map<string, Lead>()
   private tickets = new Map<string, SupportTicket>()
@@ -159,6 +162,7 @@ export class MemoryStore implements Store {
       this.connSessions = new Map(snapshot.connSessions?.map((s) => [s.key, s]))
       this.usage = new Map(snapshot.usage?.map((u) => [`${u.subjectKey}|${u.day}`, u]))
       this.settings = snapshot.settings ?? {}
+      this.companies = new Map(snapshot.companies?.map((c) => [c.userId, c]))
       this.releases = new Map(snapshot.releases?.map((r) => [r.id, r]))
       this.leads = new Map(snapshot.leads?.map((l) => [l.id, l]))
       // attachments появились позже: у старых записей поля нет.
@@ -196,6 +200,7 @@ export class MemoryStore implements Store {
       connSessions: [...this.connSessions.values()],
       usage: [...this.usage.values()],
       settings: this.settings,
+      companies: [...this.companies.values()],
       releases: [...this.releases.values()],
       leads: [...this.leads.values()],
       tickets: [...this.tickets.values()],
@@ -858,6 +863,13 @@ export class MemoryStore implements Store {
       .slice(0, limit)
   }
 
+  async listStaleInvoices(before: string, limit: number): Promise<Payment[]> {
+    await this.sync()
+    return [...this.payments.values()]
+      .filter((p) => p.provider === 'invoice' && p.status === 'pending' && p.createdAt < before)
+      .slice(0, limit)
+  }
+
   async findPaymentById(id: string): Promise<Payment | null> {
     await this.sync()
     return this.payments.get(id) ?? null
@@ -1049,6 +1061,31 @@ export class MemoryStore implements Store {
     for (const [id, day] of this.monitorDays) if (day.day < beforeDay) this.monitorDays.delete(id)
     this.monitorEvents = this.monitorEvents.filter((e) => e.at >= beforeAt)
     await this.persist()
+  }
+
+  async findCompany(userId: string): Promise<Company | null> {
+    await this.sync()
+    return this.companies.get(userId) ?? null
+  }
+
+  async saveCompany(company: Company): Promise<void> {
+    await this.sync()
+    this.companies.set(company.userId, company)
+    await this.persist()
+  }
+
+  async deleteCompany(userId: string): Promise<void> {
+    await this.sync()
+    if (this.companies.delete(userId)) await this.persist()
+  }
+
+  async nextSequence(name: string): Promise<number> {
+    await this.sync()
+    const key = `sequence:${name}`
+    const next = (Number.parseInt(this.settings[key] ?? '0', 10) || 0) + 1
+    this.settings[key] = String(next)
+    await this.persist()
+    return next
   }
 
   async getSettings(): Promise<Record<string, string>> {

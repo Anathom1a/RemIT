@@ -9,6 +9,8 @@ import { failureText, lastBillingJobs } from '@/lib/billing-jobs'
 import { refundedAmount } from '@/lib/billing-model'
 import { RefundForm } from '@/components/admin/refund-form'
 import type { Payment } from '@/lib/types'
+import { AdminInvoiceForm } from '@/components/admin/invoice-form'
+import { DOCUMENT_TITLES, documentPath, missingInvoiceFields, paymentDocuments } from '@/lib/documents'
 
 /** Чеки платежа коротко: сколько выдано и ждёт ли второй чек. */
 function receiptSummary(payment: Payment): string {
@@ -43,6 +45,7 @@ export default async function AdminPaymentsPage() {
   }
 
   const jobs = lastBillingJobs()
+  const missingInvoice = missingInvoiceFields()
   const pendingTotal = payments
     .filter((payment) => payment.status === 'pending')
     .reduce((total, payment) => total + payment.amount, 0)
@@ -71,6 +74,26 @@ export default async function AdminPaymentsPage() {
         <ActionButton endpoint="/api/v1/admin/billing-jobs" label="Запустить сейчас" />
       </div>
 
+      <div className="card space-y-3 p-5">
+        <h2 className="font-semibold">Счёт организации</h2>
+        {!config.billing.invoices.enabled ? (
+          <p className="text-sm text-text-muted">Оплата по счёту выключена (REMIT_INVOICES=false).</p>
+        ) : missingInvoice.length > 0 ? (
+          <p className="text-sm text-warning">
+            Чтобы выставлять счета, заполните реквизиты: {missingInvoice.join(', ')}. До этого в кабинете оплата по
+            счёту не предлагается.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-text-secondary">
+              Реквизиты покупателя берутся из профиля пользователя. Сумма пустая — по тарифу; для корпоративного —
+              договорная и лимит сессий. Когда деньги придут на расчётный счёт, нажмите «Оплата получена».
+            </p>
+            <AdminInvoiceForm />
+          </>
+        )}
+      </div>
+
       <div className="card overflow-hidden">
         <div className="border-b border-white/8 px-6 py-4">
           <h2 className="font-semibold">Последние платежи</h2>
@@ -82,7 +105,20 @@ export default async function AdminPaymentsPage() {
           empty="Платежей пока не было."
           columns={[
             { key: 'date', header: 'Дата', primary: true, render: (payment) => formatDateTime(payment.createdAt) },
-            { key: 'user', header: 'Пользователь', render: (payment) => emails.get(payment.userId) },
+            {
+              key: 'user',
+              header: 'Пользователь',
+              render: (payment) => (
+                <span>
+                  {emails.get(payment.userId)}
+                  {payment.buyer && (
+                    <span className="block text-xs text-text-muted">
+                      {payment.buyer.name}, ИНН {payment.buyer.inn}
+                    </span>
+                  )}
+                </span>
+              ),
+            },
             {
               key: 'plan',
               header: 'Тариф',
@@ -101,7 +137,22 @@ export default async function AdminPaymentsPage() {
               header: 'Провайдер',
               render: (payment) => (
                 <span className="text-text-muted">
-                  {payment.provider === 'yookassa' ? 'ЮKassa' : payment.provider}
+                  {payment.provider === 'yookassa'
+                    ? 'ЮKassa'
+                    : payment.provider === 'invoice'
+                      ? `счёт № ${payment.documentNumber}`
+                      : payment.provider}
+                  {paymentDocuments(payment).map((kind) => (
+                    <a
+                      key={kind}
+                      href={documentPath(payment, kind)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block text-xs text-brand-400 hover:text-brand-300"
+                    >
+                      {DOCUMENT_TITLES[kind].toLowerCase()}
+                    </a>
+                  ))}
                 </span>
               ),
             },
@@ -134,21 +185,27 @@ export default async function AdminPaymentsPage() {
               header: 'Действия',
               actions: true,
               render: (payment) =>
-                payment.status === 'pending' ? (
+                payment.status === 'pending' || (payment.status === 'canceled' && payment.provider === 'invoice') ? (
                   <>
                     <ActionButton
                       endpoint="/api/v1/admin/payments"
                       body={{ paymentId: payment.id, action: 'confirm' }}
-                      label="Подтвердить"
+                      label={payment.provider === 'invoice' ? 'Оплата получена' : 'Подтвердить'}
                       variant="primary"
-                      confirm={`Подтвердить оплату ${formatPrice(payment.amount)} и включить подписку?`}
+                      confirm={
+                        payment.provider === 'invoice'
+                          ? `Деньги по счёту № ${payment.documentNumber} (${formatPrice(payment.amount)}) пришли на расчётный счёт? Подписка включится, клиенту уйдёт акт.`
+                          : `Подтвердить оплату ${formatPrice(payment.amount)} и включить подписку?`
+                      }
                     />
-                    <ActionButton
-                      endpoint="/api/v1/admin/payments"
-                      body={{ paymentId: payment.id, action: 'cancel' }}
-                      label="Отменить"
-                      variant="danger"
-                    />
+                    {payment.status === 'pending' && (
+                      <ActionButton
+                        endpoint="/api/v1/admin/payments"
+                        body={{ paymentId: payment.id, action: 'cancel' }}
+                        label="Отменить"
+                        variant="danger"
+                      />
+                    )}
                   </>
                 ) : payment.status === 'succeeded' && payment.amount - refundedAmount(payment) > 0 ? (
                   <RefundForm

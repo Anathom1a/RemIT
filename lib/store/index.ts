@@ -1,5 +1,6 @@
 import type {
   ClientAlarm,
+  Company,
   DeviceGroup,
   OAuthIdentity,
   OAuthState,
@@ -172,6 +173,8 @@ export interface Store {
   listPaymentsDueSettlement(now: string, limit: number): Promise<Payment[]>
   /** Оплаченные с paidAt >= since, по которым чеки ещё не получены. */
   listPaymentsAwaitingReceipt(since: string, limit: number): Promise<Payment[]>
+  /** Неоплаченные счета организаций, выставленные раньше before. */
+  listStaleInvoices(before: string, limit: number): Promise<Payment[]>
   findPaymentById(id: string): Promise<Payment | null>
   findPaymentByProviderId(providerPaymentId: string): Promise<Payment | null>
   listPaymentsByUser(userId: string, limit: number): Promise<Payment[]>
@@ -220,6 +223,13 @@ export interface Store {
   purgeMonitor(beforeDay: string, beforeAt: string): Promise<void>
 
   /** Настройки, которые меняются в админке без перезапуска. */
+  /** Реквизиты организации аккаунта для счетов и актов. */
+  findCompany(userId: string): Promise<Company | null>
+  saveCompany(company: Company): Promise<void>
+  deleteCompany(userId: string): Promise<void>
+  /** Следующее значение сквозного счётчика (номера счетов): 1, 2, 3… без повторов. */
+  nextSequence(name: string): Promise<number>
+
   getSettings(): Promise<Record<string, string>>
   setSetting(key: string, value: string): Promise<void>
 

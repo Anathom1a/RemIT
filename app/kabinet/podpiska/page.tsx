@@ -4,6 +4,8 @@ import { CheckoutButton } from '@/components/cabinet/checkout-button'
 import { LimitBanner } from '@/components/cabinet/limit-banner'
 import { DataTable } from '@/components/ui/data-table'
 import { AutoRenewChoice, DisableAutopayButton } from '@/components/cabinet/autopay'
+import { InvoiceForm } from '@/components/cabinet/invoice-form'
+import { DOCUMENT_TITLES, documentPath, invoicesAvailable, paymentDocuments } from '@/lib/documents'
 import {
   autopayAvailable,
   calculateAmount,
@@ -87,9 +89,10 @@ export default async function SubscriptionPage({
   await syncPendingPayments(user.id)
 
   const store = await getStore()
-  const [subscription, payments] = await Promise.all([
+  const [subscription, payments, company] = await Promise.all([
     store.getActiveSubscription(user.id),
     store.listPaymentsByUser(user.id, 20),
+    store.findCompany(user.id),
   ])
   const invoice = invoiceId ? await store.findPaymentById(invoiceId) : null
   const paidPlans = purchasablePlans()
@@ -109,6 +112,11 @@ export default async function SubscriptionPage({
       }
     }
   }
+
+  // По счёту — то же, что картой: при оплаченной подписке только её продление.
+  const invoicePlans = invoicesAvailable()
+    ? paidPlans.filter((plan) => !paidSubscription || plan.id === paidSubscription.plan)
+    : []
 
   const limitNotice = await getLimitNotice(userSubject(user.id), 24 * 60 * 60 * 1000)
 
@@ -165,7 +173,29 @@ export default async function SubscriptionPage({
 
       {limitNotice && <LimitBanner notice={limitNotice} canProrate={Boolean(paidSubscription)} />}
 
-      {invoice && invoice.status === 'pending' && (
+      {invoice && invoice.status === 'pending' && invoice.provider === 'invoice' && (
+        <div className="card border-warning/30 p-6">
+          <h2 className="font-semibold text-warning">Счёт № {invoice.documentNumber} ожидает оплаты</h2>
+          <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+            {formatPrice(invoice.amount)} за тариф «{getPlan(invoice.plan).name}» на {invoice.months} мес. для{' '}
+            {invoice.buyer?.name}. Оплатите до{' '}
+            {formatDate(new Date(new Date(invoice.createdAt).getTime() + config.billing.invoices.validDays * 86400000))}{' '}
+            переводом с расчётного счёта, в назначении платежа укажите номер счёта. Подписка включится, как только
+            деньги поступят, — пришлём письмо и акт. Ссылку на счёт мы отправили на почту
+            {invoice.buyer?.documentsEmail ? ' и в бухгалтерию' : ''}.
+          </p>
+          <a
+            href={documentPath(invoice, 'schet')}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-block rounded-xl bg-gradient-to-r from-brand-600 to-brand-500 px-5 py-2.5 text-sm font-medium text-white"
+          >
+            Открыть счёт
+          </a>
+        </div>
+      )}
+
+      {invoice && invoice.status === 'pending' && invoice.provider !== 'invoice' && (
         <div className="card border-warning/30 p-6">
           <h2 className="font-semibold text-warning">Счёт на оплату</h2>
           <p className="mt-2 text-sm leading-relaxed text-text-secondary">
@@ -285,6 +315,41 @@ export default async function SubscriptionPage({
         </div>
       </PlanChoice>
 
+      {invoicesAvailable() && (
+        <div id="po-schetu" className="card scroll-mt-24 p-5 sm:p-6">
+          <h2 className="font-semibold">Оплата по счёту для организаций</h2>
+          {!company ? (
+            <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+              Выставим счёт на организацию или ИП, после оплаты — акт. Сначала{' '}
+              <a href="/kabinet/profil#rekvizity" className="text-brand-400 hover:text-brand-300">
+                заполните реквизиты в профиле
+              </a>
+              .
+            </p>
+          ) : invoicePlans.length === 0 ? (
+            <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+              Продление по счёту для вашего тарифа выставляет отдел продаж — напишите на {config.brand.salesEmail}.
+            </p>
+          ) : (
+            <>
+              <p className="mt-2 mb-4 text-sm leading-relaxed text-text-secondary">
+                Счёт на {company.name}, ИНН {company.inn}. Подписка включится после поступления оплаты на наш
+                расчётный счёт, акт появится здесь же. Чек по 54-ФЗ при оплате с расчётного счёта не выдаётся.
+              </p>
+              <InvoiceForm
+                plans={invoicePlans.map((plan) => ({
+                  id: plan.id,
+                  name: plan.name,
+                  priceMonthly: formatPrice(plan.priceMonthly),
+                  priceYearly: formatPrice(plan.priceYearly),
+                }))}
+                defaultPlan={paidSubscription?.plan}
+              />
+            </>
+          )}
+        </div>
+      )}
+
       <div id="corporate" className="card grid scroll-mt-24 gap-6 p-6 md:grid-cols-[1.4fr_1fr] md:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-3">
@@ -325,7 +390,7 @@ export default async function SubscriptionPage({
         <DataTable
           rows={payments}
           getKey={(payment) => payment.id}
-          minWidth={820}
+          minWidth={960}
           empty="Платежей пока не было."
           columns={[
             { key: 'date', header: 'Дата', primary: true, render: (payment) => formatDateTime(payment.createdAt) },
@@ -361,6 +426,29 @@ export default async function SubscriptionPage({
               },
             },
             { key: 'receipt', header: 'Чек', render: (payment) => <ReceiptCell payment={payment} /> },
+            {
+              key: 'documents',
+              header: 'Документы',
+              render: (payment) => {
+                const kinds = paymentDocuments(payment)
+                if (kinds.length === 0) return <span className="text-text-muted">—</span>
+                return (
+                  <span className="flex flex-col gap-0.5 text-xs">
+                    {kinds.map((kind) => (
+                      <a
+                        key={kind}
+                        href={documentPath(payment, kind)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-brand-400 hover:text-brand-300"
+                      >
+                        {DOCUMENT_TITLES[kind]} № {payment.documentNumber}
+                      </a>
+                    ))}
+                  </span>
+                )
+              },
+            },
           ]}
         />
       </div>

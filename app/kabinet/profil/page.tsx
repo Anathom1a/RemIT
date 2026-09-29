@@ -6,6 +6,7 @@ import { getCurrentUser } from '@/lib/auth'
 import { getStore } from '@/lib/store'
 import { formatDate } from '@/lib/time'
 import { VK_PROVIDER, vkEnabled } from '@/lib/vk'
+import { invoicesAvailable } from '@/lib/documents'
 
 export const metadata: Metadata = { title: 'Профиль' }
 export const dynamic = 'force-dynamic'
@@ -21,6 +22,7 @@ export default async function ProfilePage({
   const params = await searchParams
   const store = await getStore()
   const vk = (await store.listOAuthIdentities(user.id)).find((identity) => identity.provider === VK_PROVIDER)
+  const company = await store.findCompany(user.id)
 
   return (
     <div className="space-y-6">
@@ -83,6 +85,50 @@ export default async function ProfilePage({
           )}
         </div>
       )}
+
+      <div id="rekvizity" className="card scroll-mt-24 p-6">
+        <h2 className="font-semibold">Реквизиты организации</h2>
+        <p className="mt-1.5 mb-4 text-sm text-text-secondary">
+          Для счетов и актов: {invoicesAvailable() ? 'с ними можно оплачивать подписку по счёту с расчётного счёта, ' : ''}
+          а к оплатам картой появятся акты. В уже выставленных документах реквизиты не меняются.
+        </p>
+        <JsonForm endpoint="/api/v1/account/company" body={{ action: 'save' }} submitLabel="Сохранить реквизиты" className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm sm:col-span-2">
+            <span className="text-xs text-text-muted">Полное наименование</span>
+            <input name="name" required defaultValue={company?.name} placeholder="ООО «Ромашка» или ИП Петров Пётр Петрович" className={inputClass} />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-text-muted">ИНН</span>
+            <input name="inn" required inputMode="numeric" defaultValue={company?.inn} placeholder="10 или 12 цифр" className={inputClass} />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-text-muted">КПП (у ИП нет)</span>
+            <input name="kpp" defaultValue={company?.kpp} className={inputClass} />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-text-muted">ОГРН или ОГРНИП</span>
+            <input name="ogrn" inputMode="numeric" defaultValue={company?.ogrn} className={inputClass} />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs text-text-muted">Почта бухгалтерии (необязательно)</span>
+            <input name="documentsEmail" type="email" defaultValue={company?.documentsEmail} placeholder="Копии счетов и актов" className={inputClass} />
+          </label>
+          <label className="text-sm sm:col-span-2">
+            <span className="text-xs text-text-muted">Юридический адрес</span>
+            <input name="address" required defaultValue={company?.address} className={inputClass} />
+          </label>
+        </JsonForm>
+        {company && (
+          <div className="mt-3">
+            <ActionButton
+              endpoint="/api/v1/account/company"
+              body={{ action: 'delete' }}
+              label="Удалить реквизиты"
+              confirm="Удалить реквизиты организации? Выставленные счета и акты останутся."
+            />
+          </div>
+        )}
+      </div>
 
       <div className="card border-danger/25 p-6">
         <h2 className="font-semibold">Удалить аккаунт</h2>

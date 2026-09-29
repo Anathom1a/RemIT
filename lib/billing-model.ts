@@ -40,6 +40,9 @@ export type PaymentExtras = Pick<
   | 'settlement'
   | 'receipts'
   | 'refunds'
+  | 'documentNumber'
+  | 'buyer'
+  | 'concurrentSessions'
 >
 
 export function paymentExtras(): PaymentExtras {
@@ -54,6 +57,9 @@ export function paymentExtras(): PaymentExtras {
     settlement: '',
     receipts: [],
     refunds: [],
+    documentNumber: '',
+    buyer: null,
+    concurrentSessions: null,
   }
 }
 

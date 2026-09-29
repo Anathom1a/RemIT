@@ -30,12 +30,20 @@ export function legalEntity(): string {
   return parts.length > 0 ? parts.join(', ') : `владелец сервиса ${config.brand.name}`
 }
 
+/** Банковские реквизиты одной строкой: заданные целиком или собранные из полей для счетов. */
+export function bankLine(): string {
+  if (config.legal.bank) return config.legal.bank
+  const { bankName, bik, account, corrAccount } = config.legal
+  return [bankName, bik && `БИК ${bik}`, account && `р/с ${account}`, corrAccount && `к/с ${corrAccount}`]
+    .filter(Boolean)
+    .join(', ')
+}
+
 /** Реквизиты списком «подпись — значение» для раздела «Реквизиты». */
 export function legalDetails(): { label: string; value: string }[] {
-  const rows = FIELDS.filter(({ key }) => config.legal[key]).map(({ key, label }) => ({
-    label,
-    value: config.legal[key],
-  }))
+  const rows = FIELDS.map(({ key, label }) => ({ label, value: key === 'bank' ? bankLine() : config.legal[key] })).filter(
+    (row) => row.value,
+  )
   rows.push({ label: 'Почта', value: config.brand.supportEmail })
   return rows
 }

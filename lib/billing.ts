@@ -3,7 +3,9 @@ import { config } from './config'
 import { getPlan, isFreePlan, planRank, type Plan, type PlanId } from './plans'
 import { getStore } from './store'
 import { newId } from './auth'
-import { formatDate } from './time'
+import { billingDay, formatDate } from './time'
+import { formatDocumentNumber, invoicesAvailable } from './documents'
+import { sendInvoicePaid } from './billing-mail'
 import { AUTOPAY_OFF, paymentExtras, type AutopayFields } from './billing-model'
 import {
   createPayment as createYookassaApiPayment,
@@ -113,12 +115,11 @@ export async function sendPaymentToYookassa(payment: Payment, paymentMethodId?: 
   })
 }
 
-export async function createCheckout(
-  user: User,
-  planId: PlanId,
-  months: number,
-  options: { autoRenew?: boolean } = {},
-): Promise<CheckoutResult> {
+/**
+ * Можно ли купить тариф целиком: не бесплатный, не договорной и не ломает
+ * текущую оплаченную подписку. Бросает CheckoutError с объяснением.
+ */
+async function assertPurchasable(user: User, planId: PlanId): Promise<Plan> {
   const plan = getPlan(planId)
   if (isFreePlan(planId)) {
     throw new CheckoutError('Бесплатный тариф не требует оплаты')
@@ -142,11 +143,24 @@ export async function createCheckout(
         : `Тариф «${currentPlan.name}» оплачен до ${formatDate(current.expiresAt)}. Перейти на «${plan.name}» можно после окончания срока.`,
     )
   }
+  return plan
+}
+
+export async function createCheckout(
+  user: User,
+  planId: PlanId,
+  months: number,
+  options: { autoRenew?: boolean } = {},
+): Promise<CheckoutResult> {
+  await assertPurchasable(user, planId)
+  const store = await getStore()
 
   const amount = calculateAmount(planId, months)
   const payment = newPayment(user, { kind: 'subscription', plan: planId, fromPlan: null, upgradeUntil: null, months, amount })
   // Карту сохраняем, только если человек сам отметил автопродление.
   payment.saveMethod = Boolean(options.autoRenew) && autopayAvailable()
+  // Организация платит картой — акт тоже нужен.
+  payment.buyer = await store.findCompany(user.id)
 
   if (config.billing.provider === 'yookassa') {
     const created = await sendPaymentToYookassa(payment)
@@ -158,6 +172,73 @@ export async function createCheckout(
 
   await store.createPayment(payment)
   return { payment, redirectUrl: payment.confirmationUrl }
+}
+
+/* --------------------------------------------------------------------------
+ * Оплата по счёту для организаций
+ *
+ * Счёт с реквизитами выставляется сразу, деньги идут переводом на расчётный
+ * счёт, поступление отмечает администратор — тогда подписка включается и
+ * появляется акт. Чек по 54-ФЗ при расчётах между организациями и ИП
+ * безналичным переводом не нужен.
+ * ------------------------------------------------------------------------ */
+
+/** Следующий номер счёта/акта: сквозной внутри года. */
+export async function nextDocumentNumber(now = new Date()): Promise<string> {
+  const store = await getStore()
+  const year = Number(billingDay(now).slice(0, 4))
+  return formatDocumentNumber(year, await store.nextSequence(`documents-${year}`))
+}
+
+export interface InvoiceOptions {
+  plan: PlanId
+  months: number
+  /** Для корпоративного счёта из админки — согласованная сумма, копейки. */
+  amount?: number
+  /** Согласованный лимит одновременных сессий. */
+  concurrentSessions?: number | null
+}
+
+/**
+ * Счёт на оплату. Из кабинета — по тарифной цене; из админки (byAdmin) —
+ * можно корпоративный тариф с договорной суммой и лимитом сессий.
+ */
+export async function createInvoice(user: User, options: InvoiceOptions, byAdmin = false): Promise<Payment> {
+  if (!invoicesAvailable()) {
+    throw new CheckoutError('Оплата по счёту пока недоступна. Напишите в поддержку.')
+  }
+  const store = await getStore()
+  const company = await store.findCompany(user.id)
+  if (!company) {
+    throw new CheckoutError(
+      byAdmin
+        ? 'У пользователя не заполнены реквизиты организации (кабинет → «Профиль»).'
+        : 'Заполните реквизиты организации в профиле — они нужны для счёта и акта.',
+    )
+  }
+
+  const plan = getPlan(options.plan)
+  const months = Math.min(36, Math.max(1, Math.floor(options.months) || 1))
+  let amount = calculateAmount(plan.id, months)
+  if (byAdmin && (plan.negotiable || options.amount)) {
+    if (isFreePlan(plan.id)) throw new CheckoutError('Бесплатный тариф не требует оплаты')
+    if (!options.amount || options.amount < 100) throw new CheckoutError('Укажите сумму счёта')
+    amount = options.amount
+  } else {
+    await assertPurchasable(user, plan.id)
+  }
+
+  const payment = newPayment(user, { kind: 'subscription', plan: plan.id, fromPlan: null, upgradeUntil: null, months, amount })
+  payment.provider = 'invoice'
+  payment.buyer = company
+  payment.documentNumber = await nextDocumentNumber()
+  payment.providerPaymentId = payment.documentNumber
+  payment.confirmationUrl = `/kabinet/podpiska?schet=${payment.id}`
+  payment.concurrentSessions = byAdmin && options.concurrentSessions ? options.concurrentSessions : null
+  // Счёт организации — почта для документов тоже получит письма.
+  payment.receiptEmail = company.documentsEmail || user.email
+  await store.createPayment(payment)
+  return payment
 }
 
 /** Повторно запрашивает статус платежа у ЮKassa: вебхуку нельзя доверять на слово. */
@@ -238,7 +319,14 @@ export async function markPaymentPaid(payment: Payment, remote?: YookassaPayment
   let subscription =
     paid.kind === 'upgrade'
       ? await applyUpgrade(paid)
-      : await activateSubscription(paid.userId, paid.plan, paid.months, paid.provider, paid.providerPaymentId)
+      : await activateSubscription(
+          paid.userId,
+          paid.plan,
+          paid.months,
+          paid.provider,
+          paid.providerPaymentId,
+          paid.concurrentSessions ?? undefined,
+        )
 
   subscription = await applyAutopay(paid, subscription, remote)
 
@@ -248,7 +336,14 @@ export async function markPaymentPaid(payment: Payment, remote?: YookassaPayment
     paid.provider === 'yookassa' && config.billing.receipts.enabled && config.billing.receipts.mode === 'prepayment'
       ? 'due'
       : ''
+  // Акт организации, которая платила картой: номер — при оплате, чтобы
+  // брошенные заказы не оставляли дыр в нумерации.
+  if (paid.buyer && !paid.documentNumber) paid.documentNumber = await nextDocumentNumber()
   await store.savePayment(paid)
+  if (paid.provider === 'invoice') {
+    const user = await store.findUserById(paid.userId)
+    if (user && user.status === 'active') await sendInvoicePaid(user, paid, subscription)
+  }
   return subscription
 }
 
@@ -473,6 +568,7 @@ export async function createUpgradeCheckout(user: User, toPlanId: PlanId): Promi
     months: 0,
     amount: quote.amount,
   })
+  payment.buyer = await store.findCompany(user.id)
 
   if (config.billing.provider === 'yookassa') {
     const created = await sendPaymentToYookassa(payment)

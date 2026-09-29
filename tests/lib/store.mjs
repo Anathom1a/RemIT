@@ -45,6 +45,7 @@ const TABLES = {
   alarms: 'client_alarms',
   webShares: 'web_shares',
   incidents: 'incidents',
+  companies: 'companies',
   monitorEvents: 'monitor_events',
 }
 
@@ -59,6 +60,7 @@ export async function readStore() {
     snapshot[name] = (await db.query(`SELECT * FROM ${table}`)).rows.map(camel)
   }
   snapshot.payments = snapshot.payments.map((payment) => ({ ...payment, amount: Number(payment.amount) }))
+  snapshot.companies = snapshot.companies.map((row) => row.data)
   const settings = (await db.query('SELECT key, value FROM settings')).rows
   snapshot.settings = Object.fromEntries(settings.map((row) => [row.key, row.value]))
   return snapshot
@@ -86,6 +88,9 @@ export async function editStore(mutate) {
       const old = before.payments.find((item) => item.id === payment.id)
       if (old && old.serviceEndsAt !== payment.serviceEndsAt) {
         await db.query('UPDATE payments SET service_ends_at = $2 WHERE id = $1', [payment.id, payment.serviceEndsAt])
+      }
+      if (old && old.createdAt !== payment.createdAt) {
+        await db.query('UPDATE payments SET created_at = $2 WHERE id = $1', [payment.id, payment.createdAt])
       }
     }
   }

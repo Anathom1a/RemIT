@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { denyIfNotAdmin } from '@/lib/admin'
-import { markPaymentPaid } from '@/lib/billing'
+import { CheckoutError, createInvoice, markPaymentPaid } from '@/lib/billing'
+import { sendInvoiceIssued } from '@/lib/billing-mail'
+import { PLANS_BY_ID, type PlanId } from '@/lib/plans'
 import { getCurrentUser } from '@/lib/auth'
 import { RefundError, refundPayment } from '@/lib/refunds'
 import { getStore } from '@/lib/store'
@@ -39,6 +41,35 @@ export async function POST(request: Request) {
   const action = String(payload.action ?? 'confirm')
 
   const store = await getStore()
+
+  // Счёт организации от имени отдела продаж, в том числе корпоративный:
+  // {action: "invoice", email, plan, months, amount: "45000", concurrentSessions}.
+  if (action === 'invoice') {
+    const user = await store.findUserByEmail(String(payload.email ?? '').trim().toLowerCase())
+    if (!user || user.status !== 'active') return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
+    const plan = String(payload.plan ?? '') as PlanId
+    if (!(plan in PLANS_BY_ID)) return NextResponse.json({ error: 'Неизвестный тариф' }, { status: 400 })
+    const rubles = Number.parseFloat(String(payload.amount ?? '').replace(/\s+/g, '').replace(',', '.'))
+    const sessions = Number.parseInt(String(payload.concurrentSessions ?? ''), 10)
+    try {
+      const payment = await createInvoice(
+        user,
+        {
+          plan,
+          months: Number.parseInt(String(payload.months ?? '1'), 10) || 1,
+          amount: Number.isFinite(rubles) && rubles > 0 ? Math.round(rubles * 100) : undefined,
+          concurrentSessions: Number.isFinite(sessions) && sessions > 0 ? sessions : null,
+        },
+        true,
+      )
+      await sendInvoiceIssued(user, payment)
+      return NextResponse.json({ ok: true, payment })
+    } catch (error) {
+      if (error instanceof CheckoutError) return NextResponse.json({ error: error.message }, { status: 400 })
+      throw error
+    }
+  }
+
   const payment = await store.findPaymentById(paymentId)
   if (!payment) return NextResponse.json({ error: 'Платёж не найден' }, { status: 404 })
 

@@ -194,6 +194,18 @@ ALTER TABLE payments ADD COLUMN IF NOT EXISTS settlement TEXT NOT NULL DEFAULT '
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS receipts JSONB NOT NULL DEFAULT '[]'::jsonb;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS refunds JSONB NOT NULL DEFAULT '[]'::jsonb;
 
+-- Счета и акты для организаций.
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS document_number TEXT NOT NULL DEFAULT '';
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS buyer JSONB;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS concurrent_sessions INTEGER;
+
+-- Реквизиты организации аккаунта (одна на аккаунт).
+CREATE TABLE IF NOT EXISTS companies (
+    user_id    TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    data       JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_settlement_idx ON payments(service_ends_at) WHERE settlement = 'due';
 CREATE INDEX IF NOT EXISTS payments_provider_idx ON payments(provider_payment_id);

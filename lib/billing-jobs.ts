@@ -28,6 +28,8 @@ import type { Payment, PaymentReceipt, Subscription, User } from './types'
  *   3. Второй чек «полный расчёт» по окончании оплаченного периода (54-ФЗ,
  *      если первый чек был «предоплата 100%»).
  *   4. Фискальные данные чеков из ЮKassa — для кабинета и админки.
+ *   Независимо от ЮKassa: отмена счетов организаций, не оплаченных за
+ *   REMIT_INVOICE_CANCEL_DAYS дней.
  *
  * Двойного списания не будет: у каждой попытки свой ключ идемпотентности и
  * свой id платежа, выведенные из подписки, даты окончания и номера попытки.
@@ -77,6 +79,7 @@ const REASON_TEXT: Record<string, string> = {
   country_forbidden: 'банк не разрешает такие платежи',
   '3d_secure_failed': 'банк требует подтверждения платежа',
   internal_timeout: 'платёжная система не ответила вовремя',
+  invoice_expired: 'счёт не оплачен в срок',
 }
 
 export const failureText = (reason: string) => REASON_TEXT[reason] ?? 'платёж отклонён'
@@ -88,6 +91,8 @@ export interface BillingJobReport {
   pending: number
   settlements: number
   receipts: number
+  /** Отменено неоплаченных счетов организаций. */
+  invoicesCanceled: number
   errors: string[]
 }
 
@@ -98,6 +103,7 @@ const emptyReport = (): BillingJobReport => ({
   pending: 0,
   settlements: 0,
   receipts: 0,
+  invoicesCanceled: 0,
   errors: [],
 })
 
@@ -118,7 +124,6 @@ export async function runBillingJobs(now = new Date()): Promise<BillingJobReport
   lastRunAt = Date.now()
   running = (async () => {
     const report = emptyReport()
-    if (config.billing.provider !== 'yookassa' || !yookassaConfigured()) return report
     const step = async (name: string, job: () => Promise<void>) => {
       try {
         await job()
@@ -126,6 +131,11 @@ export async function runBillingJobs(now = new Date()): Promise<BillingJobReport
         report.errors.push(`${name}: ${(error as Error).message}`)
         console.error(`[billing] ${name}:`, error)
       }
+    }
+    await step('счета', () => cancelStaleInvoices(now, report))
+    if (config.billing.provider !== 'yookassa' || !yookassaConfigured()) {
+      lastReport = { at: now.toISOString(), report }
+      return report
     }
     if (config.billing.autopay) {
       await step('предупреждения', () => sendNotices(now, report))
@@ -147,6 +157,18 @@ export async function runBillingJobs(now = new Date()): Promise<BillingJobReport
     return await running
   } finally {
     running = null
+  }
+}
+
+/* ---------------------------------------------------------------- 0 ---- */
+
+/** Счета, которые так и не оплатили, закрываем: иначе они висят «в ожидании» вечно. */
+async function cancelStaleInvoices(now: Date, report: BillingJobReport) {
+  const store = await getStore()
+  const before = new Date(now.getTime() - config.billing.invoices.cancelAfterDays * DAY).toISOString()
+  for (const payment of await store.listStaleInvoices(before, 100)) {
+    await store.savePayment({ ...payment, status: 'canceled', failureReason: 'invoice_expired' })
+    report.invoicesCanceled += 1
   }
 }
 
