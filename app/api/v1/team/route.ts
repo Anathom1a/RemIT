@@ -13,6 +13,8 @@ import {
   removeMember,
   renameGroup,
   renameTeam,
+  setRole,
+  setSeat,
 } from '@/lib/teams'
 
 export const dynamic = 'force-dynamic'
@@ -39,6 +41,12 @@ export async function POST(request: Request) {
         break
       case 'remove':
         await removeMember(user, String(body.userId ?? ''))
+        break
+      case 'seat':
+        await setSeat(user, String(body.userId ?? ''), body.seat === true)
+        break
+      case 'role':
+        await setRole(user, String(body.userId ?? ''), body.role)
         break
       case 'accept':
         await acceptInvite(user)

@@ -16,6 +16,7 @@ import {
 } from '@/lib/billing'
 import { RENEWAL } from '@/lib/billing-jobs'
 import { refundedAmount } from '@/lib/billing-model'
+import { planAccess } from '@/lib/seats'
 import type { Payment } from '@/lib/types'
 import { getCurrentUser } from '@/lib/auth'
 import { getLimitNotice } from '@/lib/limit-notice'
@@ -98,6 +99,7 @@ export default async function SubscriptionPage({
     store.findCompany(user.id),
   ])
   const invoice = invoiceId ? await store.findPaymentById(invoiceId) : null
+  const access = subscription ? null : await planAccess(user.id, store)
   const paidPlans = purchasablePlans()
   const corporate = getPlan('corporate')
 
@@ -132,8 +134,16 @@ export default async function SubscriptionPage({
             ? `${subscription.provider === 'trial' ? 'Пробный период' : 'Тариф'} «${getPlan(subscription.plan).name}» ${
                 subscription.provider === 'trial' ? 'действует' : 'активен'
               } до ${formatDate(subscription.expiresAt)}`
-            : `Сейчас действует бесплатный тариф: ${Math.round(config.quota.freeSecondsPerDay / 3600)} часа управления в сутки.`}
+            : access?.viaTeam
+              ? `Своей подписки нет — действует место в команде.`
+              : `Сейчас действует бесплатный тариф: ${Math.round(config.quota.freeSecondsPerDay / 3600)} часа управления в сутки.`}
         </p>
+        {access?.viaTeam && access.subscription && (
+          <p className="mt-2 rounded-xl border border-brand-500/30 bg-brand-500/10 px-4 py-3 text-sm text-text-secondary">
+            Вы работаете по тарифу «{access.plan.name}» команды «{access.viaTeam.teamName}» до{' '}
+            {formatDate(access.subscription.expiresAt)} — его оплачивает владелец команды, покупать отдельно не нужно.
+          </p>
+        )}
         {subscription?.concurrentSessions != null && (
           <p className="mt-1 text-sm text-text-secondary">
             Согласовано одновременных сессий: {subscription.concurrentSessions}

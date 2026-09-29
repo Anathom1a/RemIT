@@ -119,6 +119,8 @@ export interface Store {
   /** false — пользователь уже в какой-то команде. */
   addTeamMember(member: TeamMember): Promise<boolean>
   removeTeamMember(teamId: string, userId: string): Promise<void>
+  /** Меняет роль и место участника. */
+  updateTeamMember(member: TeamMember): Promise<void>
   /** Удаляет команду, её группы устройств и снимает группы с устройств. */
   deleteTeam(id: string): Promise<void>
   listDeviceGroups(teamId: string): Promise<DeviceGroup[]>

@@ -2,6 +2,7 @@ import { connectionsWord, getPlan, type Plan } from './plans'
 import { getStore } from './store'
 import { formatDateTime } from './time'
 import type { ConnSession, User } from './types'
+import { planAccess } from './seats'
 
 /**
  * История подключений в кабинете и её выгрузка.
@@ -56,11 +57,9 @@ function statusOf(session: ConnSession): string {
 
 export async function getHistory(user: User, now = new Date()): Promise<History> {
   const store = await getStore()
-  const [subscription, devices] = await Promise.all([
-    store.getActiveSubscription(user.id),
-    store.listDevicesByUser(user.id),
-  ])
-  const plan = getPlan(subscription?.plan ?? 'free')
+  const [access, devices] = await Promise.all([planAccess(user.id, store), store.listDevicesByUser(user.id)])
+  // Своя подписка или место в команде.
+  const plan = access.plan
   const days = Math.min(plan.historyDays, HISTORY_RETENTION_DAYS)
   const since = new Date(now.getTime() - days * DAY_MS).toISOString()
 

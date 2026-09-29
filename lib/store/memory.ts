@@ -150,7 +150,8 @@ export class MemoryStore implements Store {
       this.oauthIdentities = snapshot.oauthIdentities ?? []
       this.oauthStates = new Map(snapshot.oauthStates?.map((s) => [s.state, s]))
       this.teams = new Map(snapshot.teams?.map((t) => [t.id, t]))
-      this.teamMembers = snapshot.teamMembers ?? []
+      // Места появились позже: у старых записей поля нет.
+      this.teamMembers = (snapshot.teamMembers ?? []).map((m) => ({ ...m, seat: Boolean(m.seat) }))
       this.deviceGroups = new Map(snapshot.deviceGroups?.map((g) => [g.id, g]))
       this.alarms = snapshot.alarms ?? []
       this.monitorDays = new Map(snapshot.monitorDays?.map((d) => [`${d.key}|${d.day}`, d]))
@@ -593,7 +594,7 @@ export class MemoryStore implements Store {
     await this.sync()
     return this.teamMembers
       .filter((m) => m.teamId === teamId)
-      .sort((a, b) => (a.role === b.role ? a.createdAt.localeCompare(b.createdAt) : a.role === 'owner' ? -1 : 1))
+      .sort((a, b) => Number(b.role === 'owner') - Number(a.role === 'owner') || a.createdAt.localeCompare(b.createdAt))
   }
 
   async addTeamMember(member: TeamMember): Promise<boolean> {
@@ -602,6 +603,14 @@ export class MemoryStore implements Store {
     this.teamMembers.push(member)
     await this.persist()
     return true
+  }
+
+  async updateTeamMember(member: TeamMember): Promise<void> {
+    await this.sync()
+    this.teamMembers = this.teamMembers.map((m) =>
+      m.teamId === member.teamId && m.userId === member.userId ? { ...m, role: member.role, seat: member.seat } : m,
+    )
+    await this.persist()
   }
 
   async removeTeamMember(teamId: string, userId: string): Promise<void> {

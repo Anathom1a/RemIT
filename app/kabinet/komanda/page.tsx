@@ -5,13 +5,16 @@ import { JsonForm, inputClass } from '@/components/cabinet/json-form'
 import { getCurrentUser } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { getStore } from '@/lib/store'
-import { activeMembers, teamOf } from '@/lib/teams'
+import { activeMembers, canManage, teamOf } from '@/lib/teams'
+import { getPlan } from '@/lib/plans'
 import type { Device } from '@/lib/types'
 
 export const metadata: Metadata = { title: 'Команда' }
 export const dynamic = 'force-dynamic'
 
 const API = '/api/v1/team'
+
+const ROLE: Record<string, string> = { owner: 'владелец', admin: 'администратор', member: 'участник' }
 
 export default async function TeamPage() {
   const user = await getCurrentUser()
@@ -47,7 +50,7 @@ export default async function TeamPage() {
           <h2 className="font-semibold">Приглашение в команду «{view.team.name}»</h2>
           <p className="mt-1.5 text-sm text-text-secondary">
             Пригласил {owner?.email ?? 'владелец команды'}. Если примете, участники увидят ваши устройства в клиенте, а
-            вы — их.
+            вы — их. Если в команде есть свободное место, вы сразу начнёте работать по тарифу команды.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
             <ActionButton endpoint={API} body={{ action: 'accept' }} label="Принять" variant="primary" />
@@ -59,7 +62,24 @@ export default async function TeamPage() {
   }
 
   const owner = view.me.role === 'owner'
+  const manager = canManage(view.me)
   const members = activeMembers(view)
+  const { seats } = view
+  const seatPlan = seats.ownerSubscription ? getPlan(seats.ownerSubscription.plan) : null
+  // У кого своя подписка — работает по ней, место ему не нужно.
+  const ownPlan = new Map<string, string>()
+  for (const { user: person, member } of members) {
+    if (member.role === 'owner') continue
+    const subscription = await store.getActiveSubscription(person.id)
+    if (subscription) ownPlan.set(person.id, getPlan(subscription.plan).name)
+  }
+  const seatLabel = (userId: string, role: string) => {
+    if (role === 'owner') return seats.total > 0 ? 'место владельца' : ''
+    if (ownPlan.has(userId)) return `свой тариф «${ownPlan.get(userId)}»`
+    if (seats.holders.includes(userId)) return 'место'
+    if (seats.overflow.includes(userId)) return 'место сверх лимита — не действует'
+    return 'без места — бесплатный тариф'
+  }
   const invited = view.members.filter(({ member }) => member.role === 'invited')
   const devices: { device: Device; email: string }[] = []
   for (const { user: member } of members) {
@@ -76,6 +96,33 @@ export default async function TeamPage() {
         <p className="mt-1 text-sm text-text-muted">
           {members.length} в команде · {devices.length} устройств видно в клиенте у каждого участника
         </p>
+        <div className="mt-4 rounded-xl border border-white/8 bg-ink-850/50 p-4 text-sm leading-relaxed text-text-secondary">
+          {seats.total > 0 && seatPlan ? (
+            <>
+              <span className="font-medium text-text-primary">
+                Места: {seats.used} из {seats.total}
+              </span>{' '}
+              по тарифу «{seatPlan.name}» владельца. Участник с местом работает по этому тарифу под своим аккаунтом;{' '}
+              {seats.total} одновременных сессий — общие на всю команду.
+              {seats.overflow.length > 0 && (
+                <span className="block text-warning">
+                  Мест меньше, чем отмеченных участников: у {seats.overflow.length} место не действует. Заберите лишние
+                  места или перейдите на старший тариф.
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              Мест пока нет: у владельца бесплатный тариф. Когда он оплатит «Профи» или «Бизнес», участники смогут
+              работать по этому тарифу — мест столько же, сколько одновременных сессий.
+              {owner && (
+                <a href="/kabinet/podpiska" className="ml-1 text-brand-400 hover:text-brand-300">
+                  Выбрать тариф
+                </a>
+              )}
+            </>
+          )}
+        </div>
         <ul className="mt-4 divide-y divide-white/8">
           {members.map(({ member, user: person }) => (
             <li key={person.id} className="flex flex-wrap items-center gap-3 py-3">
@@ -83,8 +130,26 @@ export default async function TeamPage() {
                 {person.email}
                 {person.name && <span className="ml-2 text-text-muted">{person.name}</span>}
               </span>
-              <span className="text-xs text-text-muted">{member.role === 'owner' ? 'владелец' : 'участник'}</span>
+              <span className="text-xs text-text-muted">
+                {ROLE[member.role]}
+                {seatLabel(person.id, member.role) && ` · ${seatLabel(person.id, member.role)}`}
+              </span>
+              {manager && member.role !== 'owner' && !ownPlan.has(person.id) && seats.total > 0 && (
+                <ActionButton
+                  endpoint={API}
+                  body={{ action: 'seat', userId: person.id, seat: !member.seat }}
+                  label={member.seat ? 'Забрать место' : 'Дать место'}
+                  variant={member.seat ? 'secondary' : 'primary'}
+                />
+              )}
               {owner && member.role !== 'owner' && (
+                <ActionButton
+                  endpoint={API}
+                  body={{ action: 'role', userId: person.id, role: member.role === 'admin' ? 'member' : 'admin' }}
+                  label={member.role === 'admin' ? 'Снять администратора' : 'Сделать администратором'}
+                />
+              )}
+              {manager && member.role !== 'owner' && (owner || member.role !== 'admin') && person.id !== user.id && (
                 <ActionButton
                   endpoint={API}
                   body={{ action: 'remove', userId: person.id }}
@@ -99,13 +164,13 @@ export default async function TeamPage() {
             <li key={person.id} className="flex flex-wrap items-center gap-3 py-3">
               <span className="min-w-0 flex-1 truncate text-sm text-text-secondary">{person.email}</span>
               <span className="text-xs text-text-muted">приглашён</span>
-              {owner && (
+              {manager && (
                 <ActionButton endpoint={API} body={{ action: 'remove', userId: person.id }} label="Отозвать" variant="danger" />
               )}
             </li>
           ))}
         </ul>
-        {owner && (
+        {manager && (
           <JsonForm
             endpoint={API}
             body={{ action: 'invite' }}
@@ -127,7 +192,7 @@ export default async function TeamPage() {
           <ul className="mt-4 space-y-3">
             {view.groups.map((group) => (
               <li key={group.id} className="flex flex-wrap items-center gap-2">
-                {owner ? (
+                {manager ? (
                   <>
                     <JsonForm
                       endpoint={API}
@@ -153,7 +218,7 @@ export default async function TeamPage() {
             ))}
           </ul>
         )}
-        {owner && (
+        {manager && (
           <JsonForm
             endpoint={API}
             body={{ action: 'group-create' }}
@@ -189,7 +254,7 @@ export default async function TeamPage() {
                     {device.os ? ` · ${device.os}` : ''}
                   </p>
                 </div>
-                {owner && view.groups.length > 0 ? (
+                {manager && view.groups.length > 0 ? (
                   <JsonForm
                     endpoint={API}
                     body={{ action: 'assign', rustdeskId: device.rustdeskId }}
@@ -253,7 +318,9 @@ function Header() {
   return (
     <div>
       <h1 className="text-2xl font-semibold">Команда</h1>
-      <p className="mt-1 text-sm text-text-muted">Общий список устройств для коллег во вкладке «Доступные устройства» клиента.</p>
+      <p className="mt-1 text-sm text-text-muted">
+        Общий список устройств для коллег во вкладке «Доступные устройства» клиента и общий тариф: места в команде.
+      </p>
     </div>
   )
 }

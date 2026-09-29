@@ -355,6 +355,9 @@ CREATE TABLE IF NOT EXISTS team_members (
     PRIMARY KEY (team_id, user_id)
 );
 
+-- Места в команде: участник работает по тарифу владельца.
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS seat BOOLEAN NOT NULL DEFAULT false;
+
 CREATE TABLE IF NOT EXISTS device_groups (
     id         TEXT PRIMARY KEY,
     team_id    TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,

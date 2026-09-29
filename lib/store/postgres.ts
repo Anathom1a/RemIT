@@ -698,7 +698,7 @@ export class PostgresStore implements Store {
   }
 
   private toTeamMember(row: Row): TeamMember {
-    return { teamId: row.team_id, userId: row.user_id, role: row.role, createdAt: iso(row.created_at)! }
+    return { teamId: row.team_id, userId: row.user_id, role: row.role, seat: Boolean(row.seat), createdAt: iso(row.created_at)! }
   }
 
   async createTeam(team: Team, owner: TeamMember): Promise<void> {
@@ -708,10 +708,11 @@ export class PostgresStore implements Store {
       team.ownerId,
       team.createdAt,
     ])
-    await this.query('INSERT INTO team_members (team_id, user_id, role, created_at) VALUES ($1, $2, $3, $4)', [
+    await this.query('INSERT INTO team_members (team_id, user_id, role, seat, created_at) VALUES ($1, $2, $3, $4, $5)', [
       owner.teamId,
       owner.userId,
       owner.role,
+      owner.seat,
       owner.createdAt,
     ])
   }
@@ -727,14 +728,20 @@ export class PostgresStore implements Store {
 
   async findTeamOfUser(userId: string): Promise<{ team: Team; member: TeamMember } | null> {
     const rows = await this.query(
-      `SELECT t.*, m.role AS member_role, m.created_at AS member_created_at
+      `SELECT t.*, m.role AS member_role, m.seat AS member_seat, m.created_at AS member_created_at
        FROM team_members m JOIN teams t ON t.id = m.team_id WHERE m.user_id = $1`,
       [userId],
     )
     if (!rows[0]) return null
     return {
       team: this.toTeam(rows[0]),
-      member: { teamId: rows[0].id, userId, role: rows[0].member_role, createdAt: iso(rows[0].member_created_at)! },
+      member: {
+        teamId: rows[0].id,
+        userId,
+        role: rows[0].member_role,
+        seat: Boolean(rows[0].member_seat),
+        createdAt: iso(rows[0].member_created_at)!,
+      },
     }
   }
 
@@ -753,11 +760,20 @@ export class PostgresStore implements Store {
 
   async addTeamMember(member: TeamMember): Promise<boolean> {
     const rows = await this.query(
-      `INSERT INTO team_members (team_id, user_id, role, created_at) VALUES ($1, $2, $3, $4)
+      `INSERT INTO team_members (team_id, user_id, role, seat, created_at) VALUES ($1, $2, $3, $4, $5)
        ON CONFLICT DO NOTHING RETURNING user_id`,
-      [member.teamId, member.userId, member.role, member.createdAt],
+      [member.teamId, member.userId, member.role, member.seat, member.createdAt],
     )
     return rows.length > 0
+  }
+
+  async updateTeamMember(member: TeamMember): Promise<void> {
+    await this.query('UPDATE team_members SET role = $3, seat = $4 WHERE team_id = $1 AND user_id = $2', [
+      member.teamId,
+      member.userId,
+      member.role,
+      member.seat,
+    ])
   }
 
   async removeTeamMember(teamId: string, userId: string): Promise<void> {

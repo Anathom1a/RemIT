@@ -5,6 +5,7 @@ import { issueClientToken } from './client-api'
 import { isPaidPlan } from './plans'
 import { getStore } from './store'
 import type { AbPeer, User, WebShare } from './types'
+import { planAccess } from './seats'
 
 /**
  * Веб-клиент (бета): RustDesk для браузера из сборки lejianwen, раздаётся
@@ -25,11 +26,10 @@ export function isWebClientLogin(request: Request, payload: Record<string, any>)
   return info.type === 'browser' || info.type === 'webclient' || /\/webclient/.test(referer)
 }
 
-/** Есть ли у аккаунта веб-клиент: действующая подписка на платный тариф. */
+/** Есть ли у аккаунта веб-клиент: действующая подписка на платный тариф (своя или место в команде). */
 export async function hasWebClient(userId: string): Promise<boolean> {
-  const store = await getStore()
-  const subscription = await store.getActiveSubscription(userId)
-  return Boolean(subscription) && isPaidPlan(subscription!.plan)
+  const access = await planAccess(userId)
+  return Boolean(access.subscription) && isPaidPlan(access.plan.id)
 }
 
 const PURPOSE = 'webshare'

@@ -1,4 +1,5 @@
 import { newId } from './auth'
+import { teamSeats, type SeatInfo } from './seats'
 import { getStore } from './store'
 import type { Device, DeviceGroup, Team, TeamMember, User } from './types'
 
@@ -9,6 +10,10 @@ import type { Device, DeviceGroup, Team, TeamMember, User } from './types'
  * Показать свои устройства другим — решение самого человека, поэтому в
  * команду не добавляют, а приглашают: пока приглашение не принято, никто
  * ничьих устройств не видит. Один аккаунт — одна команда.
+ *
+ * Роли: владелец платит за тариф и распоряжается командой целиком;
+ * администратор приглашает и исключает участников, раздаёт места и ведёт
+ * группы устройств; участник пользуется. Места — см. lib/seats.ts.
  */
 
 export class TeamError extends Error {
@@ -27,7 +32,11 @@ export interface TeamView {
   me: TeamMember
   members: { member: TeamMember; user: User }[]
   groups: DeviceGroup[]
+  seats: SeatInfo
 }
+
+/** Владелец или администратор. */
+export const canManage = (member: TeamMember) => member.role === 'owner' || member.role === 'admin'
 
 export async function teamOf(user: User): Promise<TeamView | null> {
   const store = await getStore()
@@ -39,7 +48,7 @@ export async function teamOf(user: User): Promise<TeamView | null> {
     const memberUser = await store.findUserById(member.userId)
     if (memberUser && memberUser.status !== 'deleted') withUsers.push({ member, user: memberUser })
   }
-  return { team: found.team, me: found.member, members: withUsers, groups }
+  return { team: found.team, me: found.member, members: withUsers, groups, seats: await teamSeats(store, found.team, members) }
 }
 
 function teamName(value: unknown): string {
@@ -54,12 +63,24 @@ async function requireOwner(user: User): Promise<TeamView> {
   return view
 }
 
+async function requireManager(user: User): Promise<TeamView> {
+  const view = await teamOf(user)
+  if (!view || !canManage(view.me)) throw new TeamError('Это может только владелец или администратор команды', 403)
+  return view
+}
+
+function memberOf(view: TeamView, userId: string): TeamMember {
+  const found = view.members.find(({ member }) => member.userId === userId)
+  if (!found) throw new TeamError('Участник не найден', 404)
+  return found.member
+}
+
 export async function createTeam(user: User, name: unknown): Promise<Team> {
   const store = await getStore()
   if (await store.findTeamOfUser(user.id)) throw new TeamError('Вы уже в команде или у вас есть приглашение')
   const now = new Date().toISOString()
   const team: Team = { id: newId('team'), name: teamName(name), ownerId: user.id, createdAt: now }
-  await store.createTeam(team, { teamId: team.id, userId: user.id, role: 'owner', createdAt: now })
+  await store.createTeam(team, { teamId: team.id, userId: user.id, role: 'owner', seat: true, createdAt: now })
   return team
 }
 
@@ -76,7 +97,7 @@ export async function disbandTeam(user: User): Promise<void> {
 }
 
 export async function inviteMember(user: User, email: unknown): Promise<void> {
-  const view = await requireOwner(user)
+  const view = await requireManager(user)
   const store = await getStore()
   const target = await store.findUserByEmail(String(email ?? '').trim().toLowerCase())
   if (!target || target.status !== 'active') throw new TeamError('Аккаунт с такой почтой не найден', 404)
@@ -85,15 +106,18 @@ export async function inviteMember(user: User, email: unknown): Promise<void> {
     teamId: view.team.id,
     userId: target.id,
     role: 'invited',
+    seat: false,
     createdAt: new Date().toISOString(),
   })
   if (!added) throw new TeamError('Этот человек уже в команде или приглашён в другую')
 }
 
-/** Владелец убирает участника или отзывает приглашение. */
+/** Владелец или администратор убирает участника или отзывает приглашение. */
 export async function removeMember(user: User, userId: string): Promise<void> {
-  const view = await requireOwner(user)
-  if (userId === user.id) throw new TeamError('Владелец не может исключить себя — распустите команду')
+  const view = await requireManager(user)
+  const target = memberOf(view, userId)
+  if (target.role === 'owner') throw new TeamError('Владельца исключить нельзя — только распустить команду')
+  if (target.role === 'admin' && view.me.role !== 'owner') throw new TeamError('Администратора исключает владелец', 403)
   const store = await getStore()
   await clearGroupsOf(view, userId)
   await store.removeTeamMember(view.team.id, userId)
@@ -103,8 +127,46 @@ export async function acceptInvite(user: User): Promise<void> {
   const store = await getStore()
   const found = await store.findTeamOfUser(user.id)
   if (!found || found.member.role !== 'invited') throw new TeamError('Приглашения нет', 404)
+  // Свободное место достаётся принявшему сразу: владелец для того и звал.
+  const seats = await teamSeats(store, found.team)
   await store.removeTeamMember(found.team.id, user.id)
-  await store.addTeamMember({ ...found.member, role: 'member', createdAt: new Date().toISOString() })
+  await store.addTeamMember({
+    ...found.member,
+    role: 'member',
+    seat: seats.total > 0 && seats.used < seats.total,
+    createdAt: new Date().toISOString(),
+  })
+}
+
+/** Выдать или забрать место. */
+export async function setSeat(user: User, userId: string, seat: boolean): Promise<void> {
+  const view = await requireManager(user)
+  const target = memberOf(view, userId)
+  if (target.role === 'owner') throw new TeamError('Место владельца не снимается')
+  if (target.role === 'invited') throw new TeamError('Место выдаётся после того, как приглашение принято')
+  if (seat && !target.seat) {
+    if (view.seats.total === 0) {
+      throw new TeamError('У владельца нет оплаченного тарифа — мест в команде нет', 409)
+    }
+    if (view.seats.used >= view.seats.total) {
+      throw new TeamError(
+        `Все места заняты: ${view.seats.used} из ${view.seats.total}. Заберите место у другого участника или перейдите на старший тариф.`,
+        409,
+      )
+    }
+  }
+  const store = await getStore()
+  await store.updateTeamMember({ ...target, seat })
+}
+
+/** Владелец назначает и снимает администраторов. */
+export async function setRole(user: User, userId: string, role: unknown): Promise<void> {
+  const view = await requireOwner(user)
+  const target = memberOf(view, userId)
+  if (role !== 'admin' && role !== 'member') throw new TeamError('Неизвестная роль')
+  if (target.role !== 'admin' && target.role !== 'member') throw new TeamError('Роль меняется только у участников')
+  const store = await getStore()
+  await store.updateTeamMember({ ...target, role })
 }
 
 /** Отклонить приглашение или выйти из команды. */
@@ -129,7 +191,7 @@ async function clearGroupsOf(view: TeamView, userId: string): Promise<void> {
 // --- Группы устройств ----------------------------------------------------------
 
 export async function createGroup(user: User, name: unknown): Promise<void> {
-  const view = await requireOwner(user)
+  const view = await requireManager(user)
   if (view.groups.length >= 100) throw new TeamError('Слишком много групп')
   const store = await getStore()
   await store.saveDeviceGroup({
@@ -147,14 +209,14 @@ async function requireGroup(view: TeamView, groupId: string): Promise<DeviceGrou
 }
 
 export async function renameGroup(user: User, groupId: string, name: unknown): Promise<void> {
-  const view = await requireOwner(user)
+  const view = await requireManager(user)
   const group = await requireGroup(view, groupId)
   const store = await getStore()
   await store.saveDeviceGroup({ ...group, name: teamName(name) })
 }
 
 export async function deleteGroup(user: User, groupId: string): Promise<void> {
-  const view = await requireOwner(user)
+  const view = await requireManager(user)
   await requireGroup(view, groupId)
   const store = await getStore()
   await store.deleteDeviceGroup(groupId)
@@ -162,7 +224,7 @@ export async function deleteGroup(user: User, groupId: string): Promise<void> {
 
 /** Кладёт устройство участника в группу; пустой groupId — убирает из группы. */
 export async function assignDevice(user: User, rustdeskId: string, groupId: string): Promise<void> {
-  const view = await requireOwner(user)
+  const view = await requireManager(user)
   const store = await getStore()
   const device = await store.findDeviceByRustdeskId(rustdeskId)
   const visible = new Set(activeMembers(view).map(({ user: member }) => member.id))

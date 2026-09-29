@@ -5,6 +5,7 @@ import { getRuntimeSettings } from './settings'
 import { billingDay, humanDuration, nextResetAt } from './time'
 import type { ConnSession, Device } from './types'
 import { newId } from './auth'
+import { planAccess } from './seats'
 
 /**
  * Учёт бесплатных 3 часов в сутки.
@@ -63,6 +64,10 @@ export interface QuotaState {
   activeSessions: number
   resetAt: string
   subscriptionExpiresAt: string | null
+  /** Чьи сессии делят лимит одновременных сессий (места в команде). */
+  poolKeys: string[]
+  /** Тариф получен через место в команде — её название. */
+  teamName: string | null
 }
 
 export function userSubject(userId: string): QuotaSubject {
@@ -105,23 +110,30 @@ export async function resolveSubject(
 async function planForSubject(
   store: Store,
   subject: QuotaSubject,
-): Promise<{ plan: Plan; expiresAt: string | null; concurrentOverride: number | null }> {
-  if (!subject.userId) return { plan: getPlan('free'), expiresAt: null, concurrentOverride: null }
-  const subscription = await store.getActiveSubscription(subject.userId)
-  if (!subscription) return { plan: getPlan('free'), expiresAt: null, concurrentOverride: null }
+): Promise<{ plan: Plan; expiresAt: string | null; concurrentLimit: number; poolKeys: string[]; teamName: string | null }> {
+  if (!subject.userId) {
+    const free = getPlan('free')
+    return { plan: free, expiresAt: null, concurrentLimit: free.concurrentSessions, poolKeys: [subject.key], teamName: null }
+  }
+  // Своя подписка или место в команде: тогда сессии считаются вместе с
+  // остальными держателями мест (см. lib/seats.ts).
+  const access = await planAccess(subject.userId, store)
   return {
-    plan: getPlan(subscription.plan),
-    expiresAt: subscription.expiresAt,
+    plan: access.plan,
+    expiresAt: access.subscription?.expiresAt ?? null,
     // Корпоративным клиентам число сессий согласовывается отдельно.
-    concurrentOverride: subscription.concurrentSessions,
+    concurrentLimit: access.concurrentLimit,
+    poolKeys: access.poolKeys,
+    teamName: access.viaTeam?.teamName ?? null,
   }
 }
 
 export async function getQuotaState(subject: QuotaSubject, now = new Date()): Promise<QuotaState> {
   const store = await getStore()
-  const { plan, expiresAt, concurrentOverride } = await planForSubject(store, subject)
+  const { plan, expiresAt, concurrentLimit, poolKeys, teamName } = await planForSubject(store, subject)
   const usage = await store.getUsage(subject.key, billingDay(now))
-  const active = await store.listActiveConnSessions({ subjectKey: subject.key })
+  let activeSessions = 0
+  for (const key of poolKeys) activeSessions += (await store.listActiveConnSessions({ subjectKey: key })).length
   // Лимит бесплатного тарифа админ меняет из админки, не перезапуская сервис.
   const settings = await getRuntimeSettings()
   const limit = plan.id === 'free' ? settings.freeSecondsPerDay : plan.dailySeconds
@@ -135,10 +147,12 @@ export async function getQuotaState(subject: QuotaSubject, now = new Date()): Pr
     usedSeconds: usage.seconds,
     remainingSeconds: remaining,
     exhausted: remaining !== null && remaining <= 0,
-    concurrentLimit: concurrentOverride ?? plan.concurrentSessions,
-    activeSessions: active.length,
+    concurrentLimit,
+    activeSessions,
     resetAt: nextResetAt(now).toISOString(),
     subscriptionExpiresAt: expiresAt,
+    poolKeys,
+    teamName,
   }
 }
 
@@ -421,7 +435,9 @@ async function enforceConcurrentLimit(
 
   for (const state of states.values()) {
     if (state.exhausted) continue
-    const active = (await store.listActiveConnSessions({ subjectKey: state.subjectKey }))
+    const pooled = []
+    for (const key of state.poolKeys) pooled.push(...(await store.listActiveConnSessions({ subjectKey: key })))
+    const active = pooled
       .filter((session) => new Date(session.lastTickAt).getTime() >= staleBefore)
       .sort((a, b) => a.startedAt.localeCompare(b.startedAt) || a.key.localeCompare(b.key))
     if (active.length <= state.concurrentLimit) continue

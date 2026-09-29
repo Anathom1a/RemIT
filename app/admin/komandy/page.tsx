@@ -6,7 +6,7 @@ import { formatDateTime } from '@/lib/time'
 export const metadata: Metadata = { title: 'Команды' }
 export const dynamic = 'force-dynamic'
 
-const ROLE = { owner: 'владелец', member: 'участник', invited: 'приглашён' } as const
+const ROLE = { owner: 'владелец', admin: 'администратор', member: 'участник', invited: 'приглашён' } as const
 
 export default async function AdminTeamsPage() {
   const store = await getStore()
@@ -55,7 +55,10 @@ export default async function AdminTeamsPage() {
             {people.map(({ member, email }) => (
               <li key={member.userId} className="flex flex-wrap items-center gap-3 py-2.5">
                 <span className="min-w-0 flex-1 truncate text-sm">{email}</span>
-                <span className="text-xs text-text-muted">{ROLE[member.role]}</span>
+                <span className="text-xs text-text-muted">
+                  {ROLE[member.role]}
+                  {member.seat && member.role !== 'owner' ? ' · место' : ''}
+                </span>
                 {member.role !== 'owner' && (
                   <ActionButton
                     endpoint="/api/v1/admin/teams"

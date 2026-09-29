@@ -129,10 +129,16 @@ await sleep(61_000) // простой больше минуты, чтобы до
 healthy = true
 msgs = await until(async () => { const m = await tg(); return m.some((x) => x.text.includes('снова отвечает')) ? m : null }, 15_000)
 check('сторож: восстановление', Boolean(msgs), msgs?.map((m) => m.text))
+// Сторож сначала пишет в Telegram, потом сообщает сайту о простое: ждём
+// запись, и только потом останавливаем его, чтобы не оборвать отчёт.
+const st = await until(async () => {
+  const data = (await admin.get('/api/v1/admin/monitoring')).data
+  const events = data.events ?? []
+  return events.some((e) => e.checkId === 'site' && e.status === 'down') && events.some((e) => e.checkId === 'site' && e.status === 'up') ? data : null
+}, 15_000, 500)
 dog.kill()
 fakeSite.close()
-const st = (await admin.get('/api/v1/admin/monitoring')).data
-check('простой записан в события', st.events.some((e) => e.checkId === 'site' && e.status === 'down') && st.events.some((e) => e.checkId === 'site' && e.status === 'up'))
+check('простой записан в события', Boolean(st))
 // Три минуты и больше — в историю; сообщим о простое вручную, как сторож.
 r = await fetch(B + '/api/v1/monitoring/outage', { method: 'POST', headers: { authorization: 'Bearer svc-mon', 'content-type': 'application/json' }, body: JSON.stringify({ from: new Date(Date.now() - 12 * 60_000).toISOString(), to: new Date(Date.now() - 2 * 60_000).toISOString() }) })
 check('отчёт о простое принят', r.status === 200)

@@ -154,6 +154,7 @@ const SUITES = {
       REMIT_LEGAL_CORR_ACCOUNT: '30101810400000000999',
     },
   },
+  seats: { env: { REMIT_SERVICE_TOKEN: 'svc-seats' } },
   reminders: { needs: ['smtp'], env: { ...SMTP_ENV, REMIT_SERVICE_TOKEN: 'svc-rem', REMIT_API_SERVER: SITE } },
   relays: {
     needs: ['hbb'],

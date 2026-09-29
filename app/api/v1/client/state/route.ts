@@ -5,6 +5,7 @@ import { deviceSubject, getQuotaState, resolveSubject, userSubject } from '@/lib
 import { getStore } from '@/lib/store'
 import { getPlan } from '@/lib/plans'
 import { formatDate, humanDuration } from '@/lib/time'
+import { planAccess } from '@/lib/seats'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
       : deviceSubject(deviceId)
 
   const state = await getQuotaState(subject)
-  const subscription = device?.userId ? await store.getActiveSubscription(device.userId) : null
+  const subscription = device?.userId ? (await planAccess(device.userId, store)).subscription : null
   const plan = getPlan(state.planId)
   const isTrial = subscription?.provider === 'trial'
   const site = config.rustdesk.apiServer.replace(/\/$/, '') || `https://${config.brand.domain}`

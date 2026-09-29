@@ -73,8 +73,14 @@ export interface Team {
 export interface TeamMember {
   teamId: string
   userId: string
-  /** invited — приглашён, но ещё не принял: устройства друг друга не видны. */
-  role: 'owner' | 'member' | 'invited'
+  /**
+   * owner — владелец (платит), admin — управляет участниками, местами и
+   * группами, member — участник, invited — приглашён, но ещё не принял:
+   * устройства друг друга не видны.
+   */
+  role: 'owner' | 'admin' | 'member' | 'invited'
+  /** Место в команде: участник работает по тарифу владельца. */
+  seat: boolean
   createdAt: string
 }
 

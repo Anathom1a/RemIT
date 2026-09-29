@@ -36,7 +36,8 @@ export default async function CabinetPage() {
       <div>
         <h1 className="text-2xl font-semibold">Здравствуйте, {user.name}</h1>
         <p className="mt-1 text-sm text-text-muted">
-          Тариф «{state.planName}» · обнуление лимита {formatDateTime(state.resetAt)}
+          Тариф «{state.planName}»{state.teamName ? ` команды «${state.teamName}»` : ''} · обнуление лимита{' '}
+          {formatDateTime(state.resetAt)}
         </p>
       </div>
 
