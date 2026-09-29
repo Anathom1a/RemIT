@@ -4,6 +4,7 @@ import { normalizePayment, normalizeSubscription } from '../billing-model'
 import type { Store } from './index'
 import type {
   ClientAlarm,
+  EmailVerification,
   Incident,
   MonitorDay,
   MonitorEvent,
@@ -33,6 +34,7 @@ interface Snapshot {
   users: User[]
   authSessions: AuthSession[]
   passwordResets: PasswordReset[]
+  emailVerifications: EmailVerification[]
   clientTokens: ClientToken[]
   addressBooks: AddressBook[]
   fileAudits: FileAudit[]
@@ -71,6 +73,7 @@ export class MemoryStore implements Store {
   private users = new Map<string, User>()
   private authSessions = new Map<string, AuthSession>()
   private passwordResets = new Map<string, PasswordReset>()
+  private emailVerifications = new Map<string, EmailVerification>()
   private clientTokens = new Map<string, ClientToken>()
   private addressBooks = new Map<string, AddressBook>()
   private fileAudits: FileAudit[] = []
@@ -130,7 +133,9 @@ export class MemoryStore implements Store {
 
     try {
       const snapshot = JSON.parse(await fs.readFile(target, 'utf8')) as Partial<Snapshot>
-      this.users = new Map(snapshot.users?.map((u) => [u.id, u]))
+      // emailVerifiedAt появился позже: у старых записей его нет.
+      this.users = new Map(snapshot.users?.map((u) => [u.id, { ...u, emailVerifiedAt: u.emailVerifiedAt ?? null }]))
+      this.emailVerifications = new Map(snapshot.emailVerifications?.map((v) => [v.tokenHash, v]))
       this.authSessions = new Map(snapshot.authSessions?.map((s) => [s.tokenHash, s]))
       this.passwordResets = new Map(snapshot.passwordResets?.map((r) => [r.tokenHash, r]))
       this.clientTokens = new Map(snapshot.clientTokens?.map((t) => [t.tokenHash, t]))
@@ -171,6 +176,7 @@ export class MemoryStore implements Store {
       users: [...this.users.values()],
       authSessions: [...this.authSessions.values()],
       passwordResets: [...this.passwordResets.values()],
+      emailVerifications: [...this.emailVerifications.values()],
       clientTokens: [...this.clientTokens.values()],
       addressBooks: [...this.addressBooks.values()],
       fileAudits: this.fileAudits,
@@ -293,6 +299,27 @@ export class MemoryStore implements Store {
     const reset = this.passwordResets.get(tokenHash)
     if (!reset || reset.usedAt || reset.expiresAt <= now) return null
     return reset
+  }
+
+  async createEmailVerification(verification: EmailVerification): Promise<void> {
+    await this.sync()
+    this.emailVerifications.set(verification.tokenHash, verification)
+    await this.persist()
+  }
+
+  async consumeEmailVerification(tokenHash: string, now: string): Promise<EmailVerification | null> {
+    await this.sync()
+    const found = this.emailVerifications.get(tokenHash)
+    if (!found || found.usedAt || found.expiresAt <= now) return null
+    const used = { ...found, usedAt: now }
+    this.emailVerifications.set(tokenHash, used)
+    await this.persist()
+    return used
+  }
+
+  async countRecentEmailVerifications(userId: string, since: string): Promise<number> {
+    await this.sync()
+    return [...this.emailVerifications.values()].filter((v) => v.userId === userId && v.createdAt >= since).length
   }
 
   async consumePasswordReset(tokenHash: string, now: string): Promise<PasswordReset | null> {

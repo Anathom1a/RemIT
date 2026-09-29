@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUser } from '@/lib/auth'
 import { CheckoutError, createCheckout } from '@/lib/billing'
+import { paymentBlockedReason } from '@/lib/email-verification'
 import { PLANS_BY_ID, getPlan, type PlanId } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  // До подтверждения почты не принимаем оплату: чеки уйдут в никуда.
+  const blocked = paymentBlockedReason(user)
+  if (blocked) return NextResponse.json({ error: blocked, code: 'email_unverified' }, { status: 403 })
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, any>
   const plan = String(payload.plan ?? '') as PlanId

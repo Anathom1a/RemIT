@@ -121,9 +121,10 @@ export class VkLoginError extends Error {}
 
 /**
  * Аккаунт для входа через VK: привязанный к этому профилю или новый.
- * Существующий аккаунт с той же почтой сам не привязываем: владелец должен
- * войти паролем и привязать VK в профиле — иначе профиль VK с чужой почтой
- * открыл бы чужой аккаунт.
+ * Существующий аккаунт с той же почтой привязываем сам, только если почта в
+ * нём подтверждена: иначе профиль VK с чужой почтой открыл бы аккаунт,
+ * заведённый на неё без проверки. Неподтверждённый — владелец входит паролем
+ * и привязывает VK в профиле.
  */
 export async function accountForVk(profile: VkProfile): Promise<User> {
   const store = await getStore()
@@ -140,9 +141,22 @@ export async function accountForVk(profile: VkProfile): Promise<User> {
       'В профиле VK ID нет почты. Зарегистрируйтесь по почте, а затем привяжите VK ID в профиле кабинета.',
     )
   }
-  if (await store.findUserByEmail(profile.email)) {
+  const existing = await store.findUserByEmail(profile.email)
+  if (existing) {
+    // Почта аккаунта подтверждена, VK отдаёт только подтверждённую почту —
+    // это один и тот же человек: привязываем и входим.
+    if (existing.emailVerifiedAt && existing.status === 'active') {
+      await store.saveOAuthIdentity({
+        provider: VK_PROVIDER,
+        subject: profile.subject,
+        userId: existing.id,
+        name: profile.name,
+        createdAt: new Date().toISOString(),
+      })
+      return existing
+    }
     throw new VkLoginError(
-      `Аккаунт с почтой ${profile.email} уже есть. Войдите паролем и привяжите VK ID в профиле кабинета.`,
+      `Аккаунт с почтой ${profile.email} уже есть, но почта в нём не подтверждена. Войдите паролем и привяжите VK ID в профиле кабинета.`,
     )
   }
   if (!(await getRuntimeSettings()).registrationEnabled) throw new VkLoginError('Регистрация новых аккаунтов закрыта')
@@ -157,6 +171,8 @@ export async function accountForVk(profile: VkProfile): Promise<User> {
     role: 'user',
     status: 'active',
     createdAt: now,
+    // VK ID отдаёт только подтверждённую почту.
+    emailVerifiedAt: now,
   }
   await store.createUser(user)
   await store.saveOAuthIdentity({ provider: VK_PROVIDER, subject: profile.subject, userId: user.id, name: profile.name, createdAt: now })

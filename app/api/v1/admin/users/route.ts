@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { markEmailVerified } from '@/lib/email-verification'
 import { denyIfNotAdmin } from '@/lib/admin'
 import { getStore } from '@/lib/store'
 import { getPlan } from '@/lib/plans'
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
  * С action: "reset-link" — ссылка для сброса пароля, чтобы передать её
  * человеку, если письмо не дошло или почта ещё не настроена.
  * С action: "revoke-client" — выход из клиента (token — один вход, иначе все).
+ * С action: "verify-email" — подтвердить почту вручную.
  */
 export async function POST(request: Request) {
   const denied = await denyIfNotAdmin(request)
@@ -62,6 +64,13 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
     const link = await createResetLink(user.id)
     return NextResponse.json({ ok: true, link, expiresInMinutes: RESET_TTL_MS / 60000 })
+  }
+
+  // Подтвердить почту вручную: человек написал в поддержку с этого адреса.
+  if (payload.action === 'verify-email') {
+    const user = await markEmailVerified(userId)
+    if (!user) return NextResponse.json({ error: 'Пользователь не найден' }, { status: 404 })
+    return NextResponse.json({ ok: true, emailVerifiedAt: user.emailVerifiedAt })
   }
 
   // Блокировка, разблокировка и удаление аккаунта.

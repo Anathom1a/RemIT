@@ -12,6 +12,19 @@ export interface User {
    */
   status: UserStatus
   createdAt: string
+  /** Когда подтверждена почта; null — ещё нет (оплата недоступна). */
+  emailVerifiedAt: string | null
+}
+
+/** Ссылка из письма «подтвердите почту». Храним хеш токена, как у сброса пароля. */
+export interface EmailVerification {
+  tokenHash: string
+  userId: string
+  /** Какой адрес подтверждается: если почту сменят, старая ссылка не сработает. */
+  email: string
+  createdAt: string
+  expiresAt: string
+  usedAt: string | null
 }
 
 export type UserStatus = 'active' | 'blocked' | 'deleted'

@@ -127,6 +127,13 @@ export const config = {
      * Флаг Secure у cookie сессии. По умолчанию включён в production.
      * Выключайте только для локальной проверки сборки по http.
      */
+    /**
+     * required — до подтверждения почты оплата недоступна (на почту приходят
+     * чеки и письма об автосписании); optional — подтверждение по желанию.
+     */
+    emailVerification: (env('REMIT_EMAIL_VERIFICATION', 'required') === 'optional' ? 'optional' : 'required') as
+      | 'required'
+      | 'optional',
     cookieSecure: env('REMIT_COOKIE_SECURE', process.env.NODE_ENV === 'production' ? 'true' : 'false') === 'true',
   },
 

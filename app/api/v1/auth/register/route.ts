@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import {
   createUserSession,
   hashPassword,
@@ -10,6 +10,7 @@ import {
 import { clientIp, consumeLimit, tooManyAttempts } from '@/lib/rate-limit'
 import { getStore } from '@/lib/store'
 import { getRuntimeSettings } from '@/lib/settings'
+import { sendVerification } from '@/lib/email-verification'
 import type { User } from '@/lib/types'
 
 export const dynamic = 'force-dynamic'
@@ -56,8 +57,11 @@ export async function POST(request: Request) {
     role: 'user',
     status: 'active',
     createdAt: new Date().toISOString(),
+    emailVerifiedAt: null,
   }
   await store.createUser(user)
+  // Письмо «подтвердите почту» — после ответа: регистрация не ждёт почтовый сервер.
+  after(() => sendVerification(user).catch((error) => console.error('[verify] письмо не отправлено:', error)))
 
   const token = await createUserSession(user.id)
   const response = NextResponse.json({ id: user.id, email: user.email, name: user.name })

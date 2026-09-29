@@ -80,6 +80,9 @@ export default async function AdminUsersPage({
                     <span className="pill !border-danger/40 !py-0.5 !text-[11px] !text-danger">заблокирован</span>
                   )}
                   {user.status === 'deleted' && <span className="pill !py-0.5 !text-[11px]">удалён</span>}{' '}
+                  {user.status === 'active' && !user.emailVerifiedAt && (
+                    <span className="pill !border-warning/40 !py-0.5 !text-[11px] !text-warning">почта не подтверждена</span>
+                  )}{' '}
                   {user.role === 'admin' ? (
                     <span className="pill !py-0.5 !text-[11px]">админ</span>
                   ) : (
@@ -195,6 +198,14 @@ export default async function AdminUsersPage({
                       ? `Разблокировать ${user.email}?`
                       : `Заблокировать ${user.email}? Вход на сайте и в клиенте будет закрыт, текущие входы завершатся.`
                   }
+                />
+              )}
+              {user.status === 'active' && !user.emailVerifiedAt && (
+                <ActionButton
+                  endpoint="/api/v1/admin/users"
+                  body={{ userId: user.id, action: 'verify-email' }}
+                  label="Подтвердить почту"
+                  confirm={`Подтвердить почту ${user.email} вручную? Делайте это, только если человек написал с этого адреса.`}
                 />
               )}
               {user.status !== 'deleted' && (

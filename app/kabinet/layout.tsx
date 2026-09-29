@@ -6,6 +6,8 @@ import { getCurrentUser } from '@/lib/auth'
 import { isAdmin } from '@/lib/admin'
 import { getRuntimeSettings } from '@/lib/settings'
 import { cabinetNotice } from '@/lib/status'
+import { VerifyEmailBanner } from '@/components/cabinet/verify-email'
+import { verificationRequired } from '@/lib/email-verification'
 
 const NAV = [
   { href: '/kabinet', label: 'Обзор' },
@@ -55,6 +57,8 @@ export default async function CabinetLayout({ children }: { children: React.Reac
             </Link>
           ))}
         </nav>
+
+        {!user.emailVerifiedAt && verificationRequired() && <VerifyEmailBanner email={user.email} />}
 
         {notice && (
           <a

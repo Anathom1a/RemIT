@@ -34,6 +34,8 @@ const BASE_ENV = {
   REMIT_BILLING_PROVIDER: 'manual',
   REMIT_AUTH_SECRET: 'test-auth-secret',
   REMIT_SCHEDULER: 'false',
+  // Подтверждение почты проверяет свой набор; остальным оно не мешает.
+  REMIT_EMAIL_VERIFICATION: 'optional',
   // Ничего не должно ходить в настоящие сервисы.
   REMIT_HBBS_INTERNAL: '127.0.0.1:1',
   REMIT_HBBS_CMD: '127.0.0.1:1',
@@ -67,6 +69,17 @@ const SUITES = {
     },
   },
   'limit-upgrade': { env: { REMIT_SERVICE_TOKEN: 'dev-service-token' } },
+  'email-verify': {
+    needs: ['smtp', 'vk'],
+    env: {
+      ...SMTP_ENV,
+      REMIT_EMAIL_VERIFICATION: 'required',
+      REMIT_API_SERVER: SITE,
+      REMIT_VK_CLIENT_ID: 'vk-app-1',
+      REMIT_VK_BASE_URL: `http://127.0.0.1:${PORTS.vk}`,
+      REMIT_VK_REDIRECT_URI: `${SITE}/api/v1/auth/vk/callback`,
+    },
+  },
   // Метрика нужна, чтобы проверить: на странице сброса пароля счётчик не стартует.
   'auth-history': { needs: ['smtp'], env: { ...SMTP_ENV, REMIT_YANDEX_METRIKA_ID: '12345678' } },
   attachments: { env: { REMIT_ATTACHMENTS_DIR: path.join(WORK, 'attachments') } },

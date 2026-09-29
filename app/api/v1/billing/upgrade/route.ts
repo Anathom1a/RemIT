@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { paymentBlockedReason } from '@/lib/email-verification'
 import { getCurrentUser } from '@/lib/auth'
 import { CheckoutError, createUpgradeCheckout, quoteUpgrade } from '@/lib/billing'
 import { PLANS_BY_ID, type PlanId } from '@/lib/plans'
@@ -42,6 +43,9 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const user = await getCurrentUser()
   if (!user) return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
+  // До подтверждения почты не принимаем оплату: чеки уйдут в никуда.
+  const blocked = paymentBlockedReason(user)
+  if (blocked) return NextResponse.json({ error: blocked, code: 'email_unverified' }, { status: 403 })
 
   const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>
   const plan = parsePlan(payload.plan)

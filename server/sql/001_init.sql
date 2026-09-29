@@ -12,6 +12,18 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- active | blocked | deleted (удалён по просьбе владельца, данные стёрты).
 ALTER TABLE users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+-- Подтверждение почты: до него оплата недоступна.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+    token_hash TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email      TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS email_verifications_user_idx ON email_verifications(user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS auth_sessions (
     token_hash TEXT PRIMARY KEY,

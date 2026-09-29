@@ -11,6 +11,7 @@ import type {
   FileAudit,
   AuthSession,
   PasswordReset,
+  EmailVerification,
   ConnSession,
   Device,
   Lead,
@@ -46,6 +47,10 @@ export interface Store {
   deleteUserAuthSessions(userId: string): Promise<void>
 
   createPasswordReset(reset: PasswordReset): Promise<void>
+  createEmailVerification(verification: EmailVerification): Promise<void>
+  /** Гасит действующую ссылку и возвращает её; null — нет, истекла или использована. */
+  consumeEmailVerification(tokenHash: string, now: string): Promise<EmailVerification | null>
+  countRecentEmailVerifications(userId: string, since: string): Promise<number>
   /**
    * Погашает ссылку: возвращает запись, только если она ещё не использована
    * и не истекла. Атомарно — двумя вкладками одну ссылку не использовать.

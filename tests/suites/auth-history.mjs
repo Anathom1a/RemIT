@@ -22,7 +22,9 @@ async function call(who, pathName, { method = 'GET', body, ip = '10.0.0.1', raw 
   let data; try { data = JSON.parse(text) } catch { data = text }
   return { status: res.status, data, headers: res.headers }
 }
-const mails = () => (fs.existsSync(MAIL) ? fs.readdirSync(MAIL).sort().map((f) => fs.readFileSync(path.join(MAIL, f), 'utf8')) : [])
+// Только письма сброса пароля: после регистрации приходит ещё «подтвердите почту».
+const mails = () =>
+  (fs.existsSync(MAIL) ? fs.readdirSync(MAIL).sort().map((f) => fs.readFileSync(path.join(MAIL, f), 'utf8')) : []).filter((eml) => linkFrom(eml))
 function linkFrom(eml) {
   // В теле письма quoted-printable может переносить строки — склеиваем.
   const flat = eml.replace(/=\r?\n/g, '').replace(/=3D/g, '=')

@@ -68,6 +68,7 @@ export async function deleteAccount(userId: string): Promise<void> {
   await store.updateUser({
     ...user,
     email: `deleted-${user.id}@deleted.invalid`,
+    emailVerifiedAt: null,
     name: '',
     passwordHash: '',
     role: 'user',

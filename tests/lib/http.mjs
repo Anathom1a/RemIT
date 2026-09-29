@@ -3,7 +3,7 @@
 export function session(base = process.env.BASE, ip = '10.200.0.1') {
   let cookie = ''
   async function request(method, path, body, headers = {}) {
-    const response = await fetch(base + path, {
+    const response = await fetch(path.startsWith('http') ? path : base + path, {
       method,
       headers: {
         'x-real-ip': ip,

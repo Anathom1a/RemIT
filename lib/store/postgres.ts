@@ -15,6 +15,7 @@ import type {
   ClientToken,
   FileAudit,
   PasswordReset,
+  EmailVerification,
   AuthSession,
   ConnSession,
   Device,
@@ -112,6 +113,7 @@ export class PostgresStore implements Store {
       role: row.role,
       status: (row.status ?? 'active') as UserStatus,
       createdAt: iso(row.created_at)!,
+      emailVerifiedAt: iso(row.email_verified_at ?? null),
     }
   }
 
@@ -206,9 +208,9 @@ export class PostgresStore implements Store {
 
   async createUser(user: User): Promise<void> {
     await this.query(
-      `INSERT INTO users (id, email, name, password_hash, role, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [user.id, user.email, user.name, user.passwordHash, user.role, user.status, user.createdAt],
+      `INSERT INTO users (id, email, name, password_hash, role, status, created_at, email_verified_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [user.id, user.email, user.name, user.passwordHash, user.role, user.status, user.createdAt, user.emailVerifiedAt],
     )
   }
 
@@ -224,8 +226,8 @@ export class PostgresStore implements Store {
 
   async updateUser(user: User): Promise<void> {
     await this.query(
-      'UPDATE users SET email = $2, name = $3, password_hash = $4, role = $5, status = $6 WHERE id = $1',
-      [user.id, user.email, user.name, user.passwordHash, user.role, user.status],
+      'UPDATE users SET email = $2, name = $3, password_hash = $4, role = $5, status = $6, email_verified_at = $7 WHERE id = $1',
+      [user.id, user.email, user.name, user.passwordHash, user.role, user.status, user.emailVerifiedAt],
     )
   }
 
@@ -272,6 +274,41 @@ export class PostgresStore implements Store {
 
   async deleteUserAuthSessions(userId: string): Promise<void> {
     await this.query('DELETE FROM auth_sessions WHERE user_id = $1', [userId])
+  }
+
+  async createEmailVerification(verification: EmailVerification): Promise<void> {
+    await this.query(
+      `INSERT INTO email_verifications (token_hash, user_id, email, created_at, expires_at, used_at)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [verification.tokenHash, verification.userId, verification.email, verification.createdAt, verification.expiresAt, verification.usedAt],
+    )
+  }
+
+  async consumeEmailVerification(tokenHash: string, now: string): Promise<EmailVerification | null> {
+    const rows = await this.query(
+      `UPDATE email_verifications SET used_at = $2
+       WHERE token_hash = $1 AND used_at IS NULL AND expires_at > $2 RETURNING *`,
+      [tokenHash, now],
+    )
+    const row = rows[0]
+    return row
+      ? {
+          tokenHash: row.token_hash,
+          userId: row.user_id,
+          email: row.email,
+          createdAt: iso(row.created_at)!,
+          expiresAt: iso(row.expires_at)!,
+          usedAt: iso(row.used_at),
+        }
+      : null
+  }
+
+  async countRecentEmailVerifications(userId: string, since: string): Promise<number> {
+    const rows = await this.query<{ count: string }>(
+      'SELECT count(*)::text AS count FROM email_verifications WHERE user_id = $1 AND created_at >= $2',
+      [userId, since],
+    )
+    return Number(rows[0]?.count ?? 0)
   }
 
   async createPasswordReset(reset: PasswordReset): Promise<void> {
