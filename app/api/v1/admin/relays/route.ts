@@ -23,7 +23,7 @@ export async function GET(request: Request) {
 }
 
 /**
- * Действия: add {address, name, region}, update {id, enabled?, name?, region?},
+ * Действия: add {address, name, region, coords}, update {id, enabled?, name?, region?, coords?},
  * remove {id}, apply, sync, install {id}, command {id, command}.
  * После изменений список сразу уходит в hbbs.
  */
@@ -36,12 +36,12 @@ export async function POST(request: Request) {
   try {
     switch (body.action) {
       case 'add': {
-        const relay = await addRelay({ address: body.address, name: body.name, region: body.region })
+        const relay = await addRelay({ address: body.address, name: body.name, region: body.region, coords: body.coords })
         console.info(`[relays] добавлен ${relay.address}`)
         return NextResponse.json({ ok: true, relay, install: await relayInstallCommand(relay.id) })
       }
       case 'update': {
-        const relay = await updateRelay(id, { enabled: body.enabled, name: body.name, region: body.region })
+        const relay = await updateRelay(id, { enabled: body.enabled, name: body.name, region: body.region, coords: body.coords })
         console.info(`[relays] изменён ${relay.address}: ${relay.enabled ? 'включён' : 'выключен'}`)
         return NextResponse.json({ ok: true, relay, hbbs: await applyRelays() })
       }

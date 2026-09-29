@@ -12,6 +12,7 @@ on:
       - .github/workflows/build-server-image.yml
       - client/patches/hbbs-quota-hook.py
       - client/patches/server-cmd-hook.py
+      - client/patches/relay-geo-hook.py
 
 permissions:
   contents: read
@@ -52,6 +53,8 @@ jobs:
             rustdesk-server/src/rendezvous_server.rs
           # Команды hbbs/hbbr из админки сайта по сервисному токену.
           python3 remit/client/patches/server-cmd-hook.py rustdesk-server/src
+          # Ближайший ретранслятор по GeoIP.
+          python3 remit/client/patches/relay-geo-hook.py rustdesk-server/src/rendezvous_server.rs
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable

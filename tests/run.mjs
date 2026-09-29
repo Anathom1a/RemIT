@@ -158,7 +158,12 @@ const SUITES = {
   reminders: { needs: ['smtp'], env: { ...SMTP_ENV, REMIT_SERVICE_TOKEN: 'svc-rem', REMIT_API_SERVER: SITE } },
   relays: {
     needs: ['hbb'],
-    hbb: { relay: `${HOST}:21117`, token: 'svc-token-123' },
+    hbb: {
+      relay: `${HOST}:21117`,
+      token: 'svc-token-123',
+      // 5.0.0.0/24 — Москва, 6.0.0.0/24 — Владивосток.
+      geo: ['83886080,83886335,55.8,37.6', '100663296,100663551,43.1,131.9'],
+    },
     env: { ...HBB_CMD_ENV('svc-token-123'), REMIT_RELAY_SERVER: `${HOST}:21117` },
     publicKey: true,
   },
@@ -260,6 +265,10 @@ async function runSuite(name, suite) {
   if (suite.hbb) {
     process.env.HBB_TOKEN = suite.hbb.token
     process.env.HBBS_RELAY = suite.hbb.relay
+    // База GeoIP для hbbs (патч relay-geo-hook): geo.csv в его рабочем каталоге.
+    const hbbsDir = path.join(process.env.HBB_DIR, 'hbbs')
+    fs.mkdirSync(hbbsDir, { recursive: true })
+    fs.writeFileSync(path.join(hbbsDir, 'geo.csv'), (suite.hbb.geo ?? []).join('\n') + '\n')
     await startHbbs(suite.hbb)
     await startHbbr({ token: suite.hbb.token })
     Object.assign(hbbEnv, { HBB_TOKEN: suite.hbb.token, HBBS_RELAY: suite.hbb.relay })

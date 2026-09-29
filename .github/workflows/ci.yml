@@ -36,7 +36,7 @@ jobs:
         run: python3 server/nginx/check-routes.py
       - name: Синтаксис скриптов
         run: |
-          for script in server/*.sh server/monitor/*.sh server/backup/*.sh client/fork/remit/*.sh tests/*.sh; do bash -n "$script"; done
+          for script in server/*.sh server/monitor/*.sh server/backup/*.sh server/geo/*.sh client/fork/remit/*.sh tests/*.sh; do bash -n "$script"; done
           for suite in tests/*.mjs tests/lib/*.mjs tests/suites/*.mjs tests/fakes/*.mjs; do node --check "$suite"; done
 
   hbb:
@@ -57,6 +57,7 @@ jobs:
         run: |
           python3 remit/client/patches/hbbs-quota-hook.py rustdesk-server/src/rendezvous_server.rs
           python3 remit/client/patches/server-cmd-hook.py rustdesk-server/src
+          python3 remit/client/patches/relay-geo-hook.py rustdesk-server/src/rendezvous_server.rs
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:

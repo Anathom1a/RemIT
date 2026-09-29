@@ -128,6 +128,8 @@ run() {
     mkdir -p "$work/data"
     [ -d "$DATA/rustdesk" ] || fail "нет каталога $DATA/rustdesk с ключом сервера"
     cp -a "$DATA/rustdesk" "$work/data/rustdesk"
+    # База GeoIP скачивается заново сама — в копии она лишняя.
+    rm -f "$work/data/rustdesk/geo.csv" "$work/data/rustdesk/geo.csv.tmp" "$work/data/rustdesk/geo.csv.download"
     [ -d "$DATA/attachments" ] && cp -a "$DATA/attachments" "$work/data/attachments"
     if [ "${BACKUP_RELEASES:-false}" = "true" ] && [ -d "$DATA/releases" ]; then
         cp -a "$DATA/releases" "$work/data/releases"

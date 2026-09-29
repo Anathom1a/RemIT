@@ -23,7 +23,9 @@ export const SERVER_COMMANDS: Record<ServerTarget, ServerCommand[]> = {
     { cmd: 'ip-changes', alias: 'ic', args: '[<id>|<число>] [-]', explain: 'смены адреса у устройств' },
     { cmd: 'always-use-relay', alias: 'aur', args: '[y|n]', explain: 'всегда соединять через ретранслятор' },
     { cmd: 'must-login', alias: 'ml', args: '[y|n]', explain: 'пускать только клиентов, вошедших в аккаунт' },
-    { cmd: 'test-geo', alias: 'tg', args: '<ip1> <ip2>', explain: 'проверка геолокации' },
+    { cmd: 'test-geo', alias: 'tg', args: '<ip1> <ip2>', explain: 'какой ретранслятор получит соединение этих двух адресов' },
+    { cmd: 'geo-status', alias: 'gs', args: '', explain: 'сколько диапазонов в базе GeoIP (ближайший ретранслятор)' },
+    { cmd: 'reload-geo', alias: 'rg', args: '', explain: 'перечитать базу GeoIP' },
   ],
   hbbr: [
     { cmd: 'h', alias: '', args: '', explain: 'список команд' },

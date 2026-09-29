@@ -87,6 +87,9 @@ python3 "${REPO_ROOT}/client/patches/hbbs-quota-hook.py" \
 echo "==> Открываю команды hbbs/hbbr для админки сайта"
 python3 "${REPO_ROOT}/client/patches/server-cmd-hook.py" "${WORKDIR}/rustdesk-server/src"
 
+echo "==> Ближайший ретранслятор по GeoIP"
+python3 "${REPO_ROOT}/client/patches/relay-geo-hook.py" "${WORKDIR}/rustdesk-server/src/rendezvous_server.rs"
+
 # Компилятор — в официальном образе, чтобы на сервере не заводить Rust.
 # Контейнер работает под root: сборке нужен
 # apt-get (musl-tools), поэтому владельца файлов возвращаем в конце.

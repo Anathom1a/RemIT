@@ -3,6 +3,7 @@ import { config } from './config'
 import { getStore } from './store'
 import { openSecret, sealSecret } from './secret-box'
 import { ServerCmdError, sendCommandTo, sendServerCommand } from './server-cmd'
+import { cityCoords } from './geo-cities'
 
 /**
  * Ретрансляторы (hbbr). Первый — на основном сервере, остальные — отдельные
@@ -16,6 +17,12 @@ import { ServerCmdError, sendCommandTo, sendServerCommand } from './server-cmd'
  *   - после перезапуска hbbs забывает список и берёт RELAY из окружения,
  *     поэтому сайт сверяет список попутно с heartbeat (reconcileRelays) и
  *     возвращает его сам.
+ *
+ * Ближайший узел: у узла есть координаты (из названия города в поле
+ * «Регион» или заданные вручную), hbbs с патчем relay-geo-hook получает их
+ * в списке (`адрес@широта/долгота`) и по базе GeoIP выбирает узел, ближайший
+ * к обеим сторонам соединения. hbbs без патча координат не понимает — ему
+ * уходит список чистых адресов.
  *
  * У каждого дополнительного узла свой токен команд: утечка одного узла не
  * даёт управлять остальными и основным сервером. Токен хранится
@@ -34,6 +41,9 @@ export interface RelayNode {
   address: string
   name: string
   region: string
+  /** Координаты узла для выбора ближайшего; null — не заданы. */
+  lat: number | null
+  lon: number | null
   enabled: boolean
   createdAt: string
 }
@@ -52,6 +62,8 @@ function mainNode(stored?: StoredNode): StoredNode {
     address: config.rustdesk.relayServer,
     name: stored?.name || 'Основной сервер',
     region: stored?.region ?? '',
+    lat: stored?.lat ?? null,
+    lon: stored?.lon ?? null,
     enabled: stored?.enabled ?? true,
     createdAt: stored?.createdAt ?? '',
     tokenSealed: '',
@@ -69,7 +81,9 @@ async function readNodes(): Promise<StoredNode[]> {
     stored = []
   }
   const main = stored.find((node) => node.id === MAIN_RELAY_ID)
-  return [mainNode(main), ...stored.filter((node) => node.id !== MAIN_RELAY_ID)]
+  // Координаты появились позже: у старых записей полей нет.
+  const withCoords = (node: StoredNode): StoredNode => ({ ...node, lat: node.lat ?? null, lon: node.lon ?? null })
+  return [mainNode(main), ...stored.filter((node) => node.id !== MAIN_RELAY_ID).map(withCoords)]
 }
 
 async function writeNodes(nodes: StoredNode[]): Promise<void> {
@@ -105,8 +119,31 @@ function cleanText(value: unknown, max: number): string {
   return String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
+/**
+ * Координаты узла: явные «55.75, 37.62» важнее; пусто — по названию города
+ * в регионе; не нашлось — без координат (узел раздаётся по кругу).
+ */
+export function relayCoords(coords: unknown, region: string): { lat: number | null; lon: number | null } {
+  const text = String(coords ?? '').trim()
+  if (text) {
+    const parts = text.split(/[\s,;/]+/).filter(Boolean).map((part) => Number(part.replace(',', '.')))
+    const [lat, lon] = parts
+    if (parts.length !== 2 || !Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+      throw new RelayError('Координаты — широта и долгота через запятую, например 55.75, 37.62')
+    }
+    return { lat: Math.round(lat * 100) / 100, lon: Math.round(lon * 100) / 100 }
+  }
+  const city = cityCoords(region)
+  return city ? { lat: city[0], lon: city[1] } : { lat: null, lon: null }
+}
+
 /** Новый узел. Токен команд возвращается, чтобы показать команду установки. */
-export async function addRelay(input: { address: unknown; name?: unknown; region?: unknown }): Promise<RelayNode> {
+export async function addRelay(input: {
+  address: unknown
+  name?: unknown
+  region?: unknown
+  coords?: unknown
+}): Promise<RelayNode> {
   const address = normalizeRelayAddress(String(input.address ?? ''))
   const nodes = await readNodes()
   if (nodes.length > MAX_NODES) throw new RelayError(`Не больше ${MAX_NODES} ретрансляторов`)
@@ -117,6 +154,7 @@ export async function addRelay(input: { address: unknown; name?: unknown; region
     address,
     name: cleanText(input.name, 60) || address.split(':')[0],
     region: cleanText(input.region, 60),
+    ...relayCoords(input.coords, cleanText(input.region, 60)),
     // Новый узел включается после проверки: сначала его надо установить.
     enabled: false,
     createdAt: new Date().toISOString(),
@@ -128,7 +166,7 @@ export async function addRelay(input: { address: unknown; name?: unknown; region
 
 export async function updateRelay(
   id: string,
-  patch: { enabled?: unknown; name?: unknown; region?: unknown },
+  patch: { enabled?: unknown; name?: unknown; region?: unknown; coords?: unknown },
 ): Promise<RelayNode> {
   const nodes = await readNodes()
   const node = nodes.find((item) => item.id === id)
@@ -137,6 +175,7 @@ export async function updateRelay(
   if (typeof patch.enabled === 'boolean') node.enabled = patch.enabled
   if (patch.name !== undefined) node.name = cleanText(patch.name, 60) || node.name
   if (patch.region !== undefined) node.region = cleanText(patch.region, 60)
+  if (patch.region !== undefined || patch.coords !== undefined) Object.assign(node, relayCoords(patch.coords, node.region))
   if (!nodes.some((item) => item.enabled)) throw new RelayError('Хотя бы один ретранслятор должен остаться включённым')
 
   await writeNodes(nodes)
@@ -273,9 +312,33 @@ export async function relayStatuses(): Promise<RelayStatus[]> {
   )
 }
 
-/** Адреса, которые должен раздавать hbbs. */
-export async function desiredRelayList(): Promise<string[]> {
-  return (await readNodes()).filter((node) => node.enabled).map((node) => node.address)
+/** Как узел записан в списке для hbbs: с координатами, если hbbs их понимает. */
+const relayEntry = (node: RelayNode, geo: boolean) =>
+  geo && node.lat != null && node.lon != null ? `${node.address}@${node.lat}/${node.lon}` : node.address
+
+/** Адрес без координат. */
+const entryAddress = (entry: string) => entry.split('@')[0]
+
+/** Что должен раздавать hbbs. */
+export async function desiredRelayList(geo = false): Promise<string[]> {
+  return (await readNodes()).filter((node) => node.enabled).map((node) => relayEntry(node, geo))
+}
+
+export interface GeoState {
+  /** hbbs собран с патчем relay-geo-hook. */
+  supported: boolean
+  /** Сколько диапазонов GeoIP загружено; 0 — базы нет, узлы раздаются по кругу. */
+  ranges: number
+}
+
+/** Умеет ли hbbs выбирать ближайший узел и загружена ли база. */
+export async function geoState(): Promise<GeoState> {
+  try {
+    const match = (await sendServerCommand('hbbs', 'gs')).match(/geo:\s*(\d+)/)
+    return match ? { supported: true, ranges: Number(match[1]) } : { supported: false, ranges: 0 }
+  } catch {
+    return { supported: false, ranges: 0 }
+  }
 }
 
 /** Что сейчас раздаёт hbbs (только прошедшие его проверку доступности). */
@@ -302,7 +365,7 @@ export const reconcileState = () => lastReconcile
 
 /** Передаёт список ретрансляторов hbbs. */
 export async function applyRelays(): Promise<ReconcileState> {
-  const list = await desiredRelayList()
+  const list = await desiredRelayList((await geoState()).supported)
   const at = new Date().toISOString()
   try {
     await sendServerCommand('hbbs', `rs ${list.join(',')}`)
@@ -329,16 +392,18 @@ export async function reconcileRelays(options: { force?: boolean } = {}): Promis
   running = (async () => {
     const at = new Date().toISOString()
     try {
-      const desired = await desiredRelayList()
+      const desired = await desiredRelayList((await geoState()).supported)
       const current = await hbbsRelayList()
-      const extra = current.filter((address) => !desired.includes(address))
-      const missing = desired.filter((address) => !current.includes(address))
+      // Лишний узел или другие координаты у раздаваемого — передаём список заново.
+      const extra = current.filter((entry) => !desired.includes(entry))
+      const missing = desired.filter((entry) => !current.includes(entry)).map(entryAddress)
+      const currentAddresses = current.map(entryAddress)
 
       let needApply = extra.length > 0 || current.length === 0
       if (!needApply && missing.length > 0) {
         const nodes = await readNodes()
         const probes = await Promise.all(
-          missing.map((address) => {
+          missing.filter((address) => !currentAddresses.includes(address)).map((address) => {
             const node = nodes.find((item) => item.address === address)
             return probeTcp(node?.id === MAIN_RELAY_ID ? config.rustdesk.hbbrCommand : address)
           }),

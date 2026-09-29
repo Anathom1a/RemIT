@@ -52,6 +52,8 @@ services:
       # Адрес службы квот: hbbs спрашивает её перед выдачей punch hole.
       - REMIT_QUOTA_URL=http://web:3000/api/v1/quota/check
       - REMIT_SERVICE_TOKEN=${REMIT_SERVICE_TOKEN:?задайте REMIT_SERVICE_TOKEN}
+      # База GeoIP для выбора ближайшего ретранслятора (готовит контейнер geo).
+      - REMIT_GEO_FILE=/data/geo.csv
     volumes:
       # Здесь лежит ключ сервера id_ed25519 — его нельзя терять и менять.
       - ./data/rustdesk:/data
@@ -192,6 +194,21 @@ services:
       - TELEGRAM_BOT_TOKEN=${REMIT_TELEGRAM_BOT_TOKEN:-}
       - TELEGRAM_CHAT_ID=${REMIT_ALERT_TELEGRAM_CHAT_ID:-${REMIT_TELEGRAM_CHAT_ID:-}}
       - TZ=Europe/Moscow
+    restart: unless-stopped
+
+  # База GeoIP (DB-IP City Lite, CC BY 4.0) для ближайшего ретранслятора:
+  # скачивается при первом запуске и обновляется раз в месяц. Без неё hbbs
+  # раздаёт ретрансляторы по кругу — сервис работает и так.
+  geo:
+    image: curlimages/curl:8.10.1
+    container_name: remit-geo
+    user: '0:0'
+    entrypoint: ['/bin/sh', '/geo/update-geo.sh']
+    volumes:
+      - ./geo/update-geo.sh:/geo/update-geo.sh:ro
+      - ./data/rustdesk:/data/rustdesk
+    environment:
+      - GEO_FILE=/data/rustdesk/geo.csv
     restart: unless-stopped
 
   nginx:

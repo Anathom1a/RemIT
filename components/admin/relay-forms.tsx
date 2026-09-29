@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { CITIES } from '@/lib/geo-cities'
 
 const inputClass = `h-10 min-w-0 rounded-xl border border-white/10 bg-ink-850/70 px-3 text-sm text-text-primary
   focus:border-brand-500 focus:outline-none`
@@ -40,12 +41,72 @@ function InstallBlock({ command }: { command: string }) {
   )
 }
 
+/** Подсказка городов для поля «Регион»: по ним координаты ставятся сами. */
+function CityList() {
+  return (
+    <datalist id="relay-cities">
+      {Object.keys(CITIES).map((city) => (
+        <option key={city} value={city} />
+      ))}
+    </datalist>
+  )
+}
+
+/** Где стоит узел: город (координаты подставятся) или координаты вручную. */
+export function RelayLocationForm({ id, region, coords }: { id: string; region: string; coords: string }) {
+  const router = useRouter()
+  const [regionValue, setRegion] = useState(region)
+  const [coordsValue, setCoords] = useState(coords)
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault()
+    setPending(true)
+    setError('')
+    try {
+      await post({ action: 'update', id, region: regionValue, coords: coordsValue })
+      router.refresh()
+    } catch (reason) {
+      setError((reason as Error).message)
+    } finally {
+      setPending(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-2">
+      <CityList />
+      <input
+        value={regionValue}
+        onChange={(event) => setRegion(event.target.value)}
+        list="relay-cities"
+        placeholder="Город, например Москва"
+        aria-label="Город"
+        className={`${inputClass} flex-[1_1_10rem]`}
+      />
+      <input
+        value={coordsValue}
+        onChange={(event) => setCoords(event.target.value)}
+        placeholder="или координаты: 55.75, 37.62"
+        aria-label="Координаты"
+        className={`${inputClass} flex-[1_1_12rem] font-mono`}
+      />
+      <Button type="submit" size="sm" variant="secondary" disabled={pending}>
+        {pending ? 'Сохраняем…' : 'Сохранить место'}
+      </Button>
+      {error && <span className="w-full text-sm text-danger">{error}</span>}
+    </form>
+  )
+}
+
 /** Добавление ретранслятора: после сохранения показывает команду установки. */
 export function RelayAddForm() {
   const router = useRouter()
   const [address, setAddress] = useState('')
   const [name, setName] = useState('')
   const [region, setRegion] = useState('')
+  const [coords, setCoords] = useState('')
   const [install, setInstall] = useState('')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
@@ -55,11 +116,12 @@ export function RelayAddForm() {
     setPending(true)
     setError('')
     try {
-      const data = await post({ action: 'add', address, name, region })
+      const data = await post({ action: 'add', address, name, region, coords })
       setInstall(data.install ?? '')
       setAddress('')
       setName('')
       setRegion('')
+      setCoords('')
       router.refresh()
     } catch (reason) {
       setError((reason as Error).message)
@@ -86,12 +148,21 @@ export function RelayAddForm() {
           aria-label="Название"
           className={`${inputClass} flex-[1_1_9rem]`}
         />
+        <CityList />
         <input
           value={region}
           onChange={(event) => setRegion(event.target.value)}
-          placeholder="Регион (Москва)"
-          aria-label="Регион"
+          list="relay-cities"
+          placeholder="Город (Москва)"
+          aria-label="Город"
           className={`${inputClass} flex-[1_1_9rem]`}
+        />
+        <input
+          value={coords}
+          onChange={(event) => setCoords(event.target.value)}
+          placeholder="Координаты, если города нет в списке"
+          aria-label="Координаты"
+          className={`${inputClass} flex-[1_1_12rem] font-mono`}
         />
         <Button type="submit" size="sm" disabled={pending || !address.trim()}>
           {pending ? 'Добавляем…' : 'Добавить'}

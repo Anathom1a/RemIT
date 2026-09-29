@@ -1,8 +1,8 @@
 import type { Metadata } from 'next'
 import { ActionButton } from '@/components/admin/action-button'
-import { RelayAddForm, RelayInstallButton } from '@/components/admin/relay-forms'
+import { RelayAddForm, RelayInstallButton, RelayLocationForm } from '@/components/admin/relay-forms'
 import { ServerCommandForm } from '@/components/admin/server-command'
-import { MAIN_RELAY_ID, hbbsRelayList, reconcileState, relayStatuses, type ProbeResult } from '@/lib/relays'
+import { MAIN_RELAY_ID, geoState, hbbsRelayList, reconcileState, relayStatuses, type ProbeResult } from '@/lib/relays'
 import { SERVER_COMMANDS } from '@/lib/server-cmd'
 import { formatDateTime } from '@/lib/time'
 
@@ -21,8 +21,9 @@ function Probe({ label, probe }: { label: string; probe: ProbeResult | null }) {
 }
 
 export default async function AdminRelaysPage() {
-  const [relays, hbbs] = await Promise.all([
+  const [relays, geo, hbbs] = await Promise.all([
     relayStatuses(),
+    geoState(),
     hbbsRelayList().then(
       (list) => ({ ok: true as const, list }),
       (error: Error) => ({ ok: false as const, error: error.message }),
@@ -30,6 +31,8 @@ export default async function AdminRelaysPage() {
   ])
   const sync = reconcileState()
   const presets = SERVER_COMMANDS.hbbr.map((command) => command.alias || command.cmd)
+  const located = relays.filter((relay) => relay.enabled && relay.lat != null).length
+  const enabled = relays.filter((relay) => relay.enabled).length
 
   return (
     <div className="space-y-6">
@@ -37,8 +40,9 @@ export default async function AdminRelaysPage() {
         <h1 className="text-2xl font-semibold">Ретрансляторы</h1>
         <p className="mt-1 text-sm text-text-muted">
           Когда прямое соединение не получилось, трафик идёт через ретранслятор (hbbr). Клиент его не выбирает: при
-          каждом соединении адрес назначает сервер, по кругу из включённых здесь узлов, и сам пропускает те, что не
-          отвечают. Добавьте узел, установите его командой ниже, дождитесь зелёных отметок и включите.
+          каждом соединении адрес назначает сервер — ближайший к обеим сторонам по их IP (если у узлов указан город),
+          иначе по кругу, — и сам пропускает узлы, что не отвечают. Добавьте узел, установите его командой ниже,
+          дождитесь зелёных отметок и включите.
         </p>
       </div>
 
@@ -69,6 +73,24 @@ export default async function AdminRelaysPage() {
         </p>
       </div>
 
+      <div className="card space-y-2 p-6">
+        <h2 className="font-semibold">Ближайший узел</h2>
+        <p className="text-sm text-text-secondary">
+          {!geo.supported
+            ? 'hbbs собран без патча relay-geo-hook — узлы раздаются по кругу. Соберите свой образ сервера (build-server-image.yml).'
+            : geo.ranges === 0
+              ? 'База GeoIP не загружена: узлы раздаются по кругу. Её скачивает контейнер geo (server/geo/update-geo.sh) — проверьте его журнал.'
+              : `База GeoIP: ${geo.ranges.toLocaleString('ru-RU')} диапазонов. С координатами ${located} из ${enabled} включённых узлов${
+                  located < 2 ? ' — выбор имеет смысл, когда городов хотя бы два' : ''
+                }.`}
+        </p>
+        <p className="text-xs text-text-muted">
+          Сервер смотрит, где находятся обе стороны соединения, и берёт узел с наименьшей суммой расстояний до них.
+          Адреса из локальной сети и IPv6 без привязки к месту — по кругу. Данные о местоположении IP — DB-IP (CC BY
+          4.0), обновляются раз в месяц.
+        </p>
+      </div>
+
       {relays.map((relay) => (
         <div key={relay.id} className="card space-y-4 p-6">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -80,7 +102,12 @@ export default async function AdminRelaysPage() {
                 </span>
               </h2>
               <p className="mt-1 font-mono text-sm text-text-secondary">{relay.address}</p>
-              {relay.region && <p className="text-xs text-text-muted">{relay.region}</p>}
+              <p className="text-xs text-text-muted">
+                {relay.region || 'город не указан'}
+                {relay.lat != null && relay.lon != null
+                  ? ` · ${relay.lat}, ${relay.lon}`
+                  : ' · без координат — раздаётся по кругу'}
+              </p>
               <div className="mt-2 space-y-1">
                 <Probe label="ретрансляция" probe={relay.tcp} />
                 <Probe label="веб-клиент (TLS)" probe={relay.tls} />
@@ -110,6 +137,12 @@ export default async function AdminRelaysPage() {
           </div>
 
           {relay.id !== MAIN_RELAY_ID && !relay.tcp.ok && <RelayInstallButton id={relay.id} />}
+
+          <RelayLocationForm
+            id={relay.id}
+            region={relay.region}
+            coords={relay.lat != null && relay.lon != null ? `${relay.lat}, ${relay.lon}` : ''}
+          />
 
           <details>
             <summary className="cursor-pointer text-sm text-text-secondary">Команды узла (нагрузка, скорость, блокировки)</summary>

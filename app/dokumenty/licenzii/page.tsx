@@ -30,6 +30,12 @@ const COMPONENTS = [
     role: 'Подключение из браузера. Сборка из lejianwen/rustdesk-api; мы отключили в ней аналитику Firebase и загрузку шрифтов напрямую из Google, добавили отметку «бета».',
     url: 'https://github.com/lejianwen/rustdesk-api/tree/master/resources/web',
   },
+  {
+    name: 'IP Geolocation by DB-IP',
+    license: 'CC BY 4.0',
+    role: 'База местоположения IP-адресов (DB-IP IP to City Lite): по ней сервер выбирает ретранслятор, ближайший к обеим сторонам соединения. Используется только на сервере, адреса никуда не передаются.',
+    url: 'https://db-ip.com',
+  },
 ]
 
 export default function LicensesPage() {
