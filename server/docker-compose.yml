@@ -132,6 +132,39 @@ services:
       - YOOKASSA_RECEIPT_MODE=${YOOKASSA_RECEIPT_MODE:-prepayment}
     restart: unless-stopped
 
+  # Резервные копии: раз в сутки база, ключ сервера и вложения — зашифровано,
+  # с проверкой восстановления и отправкой во внешнее хранилище
+  # (server/backup/backup.sh, docs/BACKUP.md).
+  backup:
+    build: ./backup
+    container_name: remit-backup
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - TZ=Europe/Moscow
+      - PGHOST=db
+      - PGUSER=${POSTGRES_USER:-remit}
+      - PGPASSWORD=${POSTGRES_PASSWORD}
+      - PGDATABASE=${POSTGRES_DB:-remit}
+      - BACKUP_PASSPHRASE=${BACKUP_PASSPHRASE:-}
+      - BACKUP_TIME=${BACKUP_TIME:-03:30}
+      - BACKUP_KEEP_DAYS=${BACKUP_KEEP_DAYS:-14}
+      - BACKUP_RELEASES=${BACKUP_RELEASES:-false}
+      - BACKUP_S3_ENDPOINT=${BACKUP_S3_ENDPOINT:-https://storage.yandexcloud.net}
+      - BACKUP_S3_REGION=${BACKUP_S3_REGION:-ru-central1}
+      - BACKUP_S3_BUCKET=${BACKUP_S3_BUCKET:-}
+      - BACKUP_S3_PREFIX=${BACKUP_S3_PREFIX:-remit}
+      - BACKUP_S3_ACCESS_KEY=${BACKUP_S3_ACCESS_KEY:-}
+      - BACKUP_S3_SECRET_KEY=${BACKUP_S3_SECRET_KEY:-}
+      - REMIT_SERVICE_TOKEN=${REMIT_SERVICE_TOKEN}
+    volumes:
+      - ./data/rustdesk:/data/rustdesk:ro
+      - ./data/attachments:/data/attachments:ro
+      - ./data/releases:/data/releases:ro
+      - ./backups:/backups
+    restart: unless-stopped
+
   # Сторож: следит за сайтом со стороны и шлёт тревогу в Telegram, если тот
   # перестал отвечать (server/monitor/watchdog.sh, docs/MONITORING.md).
   watchdog:

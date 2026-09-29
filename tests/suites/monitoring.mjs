@@ -153,6 +153,21 @@ body = r.data
 check('тестовое оповещение: Telegram и почта', r.status === 200 && body.telegram && body.email, body)
 check('тест дошёл до Telegram', (await tg()).some((m) => m.text.includes('Тестовое оповещение')))
 
+// ---------- 9. Резервные копии: отчёт контейнера backup и тревога при сбое
+check('отчёт о копии без токена — нельзя', (await fetch(B + '/api/v1/monitoring/backup', { method: 'POST', body: '{}' })).status === 403)
+await fetch(TG + '/__clear')
+r = await fetch(B + '/api/v1/monitoring/backup', {
+  method: 'POST',
+  headers: { authorization: 'Bearer svc-mon', 'content-type': 'application/json' },
+  body: JSON.stringify({ ok: false, file: '', size: 0, remote: false, error: 'pg_dump не сработал' }),
+})
+check('отчёт о неудачной копии принят', r.status === 200)
+await admin.post('/api/v1/admin/monitoring', { action: 'run' })
+const backupState = (await admin.get('/api/v1/admin/monitoring')).data.state.checks.backup
+check('копия не удалась — проверка «сбой»', backupState?.status === 'down' && backupState.detail.includes('pg_dump'), backupState)
+msgs = await until(async () => { const m = await tg(); return m.some((x) => x.text.includes('Резервные копии')) ? m : null }, 15_000)
+check('тревога о резервной копии', Boolean(msgs), msgs?.map((m) => m.text))
+
 console.log('OK:\n  ' + ok.join('\n  '))
 console.log('FAIL:\n  ' + fail.join('\n  '))
 console.log(`${ok.length} ok, ${fail.length} fail`)

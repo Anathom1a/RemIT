@@ -6,6 +6,7 @@ import { getStore } from './store'
 import { escapeHtml, isMailConfigured, sendMail, verifyMail } from './mail'
 import { notifyTelegram } from './notify'
 import { lastBillingJobs } from './billing-jobs'
+import { readBackupState } from './backups'
 import { listRelays, MAIN_RELAY_ID, probeTcp, probeTls } from './relays'
 import { pingYookassa, yookassaConfigured, YookassaError } from './yookassa'
 import { billingDay, formatDateTime } from './time'
@@ -160,6 +161,28 @@ async function mailCheck(): Promise<CheckResult> {
   }
 }
 
+const STARTED_AT = Date.now()
+
+/**
+ * Резервные копии: последняя успешная (с проверкой восстановления) — не
+ * старше 26 часов и ушла во внешнее хранилище.
+ */
+async function backupCheck(): Promise<CheckResult> {
+  const state = await readBackupState()
+  if (!state) {
+    // Контейнер backup делает копию сразу при старте; даём ему время.
+    if (Date.now() - STARTED_AT < 2 * HOUR) return { status: 'skip', detail: '' }
+    return { status: 'down', detail: 'ни одной копии: проверьте контейнер backup' }
+  }
+  if (!state.ok) return { status: 'down', detail: `последняя копия не удалась: ${state.error}` }
+  const age = state.lastOkAt ? Date.now() - new Date(state.lastOkAt).getTime() : Infinity
+  if (age > 26 * HOUR) return { status: 'down', detail: `свежих копий нет с ${state.lastOkAt ? formatDateTime(state.lastOkAt) : '—'}` }
+  if (!state.lastOkRemote) {
+    return { status: 'degraded', detail: `${state.lastOkFile} — только на этом сервере: настройте BACKUP_S3_*` }
+  }
+  return { status: 'up', detail: `${state.lastOkFile}, проверена, во внешнем хранилище` }
+}
+
 /** Проверки на сейчас: список ретрансляторов меняется из админки. */
 async function buildChecks(): Promise<CheckDef[]> {
   // Частые проверки идут с каждым проходом планировщика (REMIT_MONITOR_INTERVAL).
@@ -202,6 +225,7 @@ async function buildChecks(): Promise<CheckDef[]> {
     { id: 'billing-jobs', name: 'Автопродление и чеки', component: null, everyMs: 10 * MINUTE, confirm: 1, run: billingJobsCheck },
     { id: 'mail', name: 'Почта (SMTP)', component: null, everyMs: 15 * MINUTE, confirm: 1, run: mailCheck },
     { id: 'disk', name: 'Место на диске', component: null, everyMs: 10 * MINUTE, confirm: 1, run: diskCheck },
+    { id: 'backup', name: 'Резервные копии', component: null, everyMs: 10 * MINUTE, confirm: 1, run: backupCheck },
   ]
 
   for (const relay of await listRelays()) {

@@ -54,6 +54,12 @@ YOOKASSA_SHOP_ID=
 YOOKASSA_SECRET_KEY=
 MUST_LOGIN=N
 REMIT_CLIENT_TOKEN_TTL=2592000
+# Резервные копии (docs/BACKUP.md). Пароль шифрования сохраните отдельно:
+# без него копии не расшифровать, а вместе с сервером он пропадёт.
+BACKUP_PASSPHRASE=$(openssl rand -base64 33 | tr -d '/+=' | cut -c1-40)
+BACKUP_S3_BUCKET=
+BACKUP_S3_ACCESS_KEY=
+BACKUP_S3_SECRET_KEY=
 ENVEOF
     chmod 600 "$ENV_FILE"
 else
@@ -61,7 +67,8 @@ else
 fi
 
 # ---------- 3. Каталоги данных ----------
-mkdir -p "${SCRIPT_DIR}/data"/{postgres,rustdesk,releases,attachments,certbot/conf,certbot/www}
+mkdir -p "${SCRIPT_DIR}/data"/{postgres,rustdesk,releases,attachments,certbot/conf,certbot/www} "${SCRIPT_DIR}/backups"
+chmod 700 "${SCRIPT_DIR}/backups"
 # Приложение в контейнере работает под UID 1001 — ему нужно писать сборки.
 chown -R 1001:1001 "${SCRIPT_DIR}/data/releases"
 
@@ -92,4 +99,8 @@ echo
 echo "  Сайт и кабинет:  https://$(grep '^PUBLIC_DOMAIN=' "$ENV_FILE" | cut -d= -f2)"
 echo "  Админка:         /admin (вход почтой из REMIT_ADMIN_EMAILS)"
 echo "  Настройте TLS (certbot) и проверьте docs/DEPLOY.md."
+echo
+echo "  Пароль резервных копий (сохраните в менеджере паролей!):"
+echo "     $(grep '^BACKUP_PASSPHRASE=' "$ENV_FILE" | cut -d= -f2-)"
+echo "  Внешнее хранилище для копий — BACKUP_S3_* в .env, docs/BACKUP.md."
 echo "============================================================"
