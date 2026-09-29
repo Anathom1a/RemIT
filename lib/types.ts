@@ -450,3 +450,65 @@ export interface Lead {
   createdAt: string
   handledAt: string | null
 }
+
+/* ------------------------------------------------------------------------
+ * Мониторинг и страница статуса
+ * --------------------------------------------------------------------- */
+
+export type MonitorStatus = 'up' | 'degraded' | 'down' | 'unknown'
+
+/** Доступность за сутки: сколько проверок из скольких прошли. key — проверка или «c:<компонент>». */
+export interface MonitorDay {
+  key: string
+  day: string
+  ok: number
+  total: number
+}
+
+/** Смена состояния проверки: упала, восстановилась, деградировала. */
+export interface MonitorEvent {
+  id: string
+  checkId: string
+  at: string
+  status: MonitorStatus
+  detail: string
+}
+
+export type IncidentImpact = 'minor' | 'major' | 'maintenance'
+
+/**
+ * investigating/identified/monitoring/resolved — сбой;
+ * scheduled/in_progress/completed — плановые работы.
+ */
+export type IncidentStatus =
+  | 'investigating'
+  | 'identified'
+  | 'monitoring'
+  | 'resolved'
+  | 'scheduled'
+  | 'in_progress'
+  | 'completed'
+
+export interface IncidentUpdate {
+  at: string
+  status: IncidentStatus
+  text: string
+}
+
+/** Инцидент или плановые работы на странице статуса. */
+export interface Incident {
+  id: string
+  title: string
+  impact: IncidentImpact
+  status: IncidentStatus
+  /** Затронутые компоненты страницы статуса. */
+  components: string[]
+  /** Создан мониторингом автоматически (и сам закроется при восстановлении). */
+  auto: boolean
+  createdAt: string
+  resolvedAt: string | null
+  /** Плановые работы: окно. */
+  startsAt: string | null
+  endsAt: string | null
+  updates: IncidentUpdate[]
+}

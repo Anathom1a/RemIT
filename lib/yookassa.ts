@@ -213,3 +213,8 @@ export async function createSettlementReceipt(input: {
   )
   return toReceipt(data)
 }
+
+/** Проверка связи и ключей: сведения о магазине. */
+export async function pingYookassa(): Promise<void> {
+  await call('GET', '/me')
+}

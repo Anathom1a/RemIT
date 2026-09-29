@@ -66,3 +66,8 @@ export function escapeHtml(value: string): string {
     char === '&' ? '&amp;' : char === '<' ? '&lt;' : char === '>' ? '&gt;' : char === '"' ? '&quot;' : '&#39;',
   )
 }
+
+/** Проверка связи с почтовым сервером (вход, TLS) — для мониторинга. */
+export async function verifyMail(): Promise<void> {
+  await getTransporter().verify()
+}

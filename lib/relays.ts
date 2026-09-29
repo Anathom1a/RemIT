@@ -192,9 +192,11 @@ export interface ProbeResult {
   ok: boolean
   ms: number
   detail: string
+  /** TLS: сколько дней осталось до истечения сертификата. */
+  daysLeft?: number
 }
 
-function probeTcp(address: string, timeoutMs = 3000): Promise<ProbeResult> {
+export function probeTcp(address: string, timeoutMs = 3000): Promise<ProbeResult> {
   const separator = address.lastIndexOf(':')
   const host = address.slice(0, separator)
   const port = Number(address.slice(separator + 1))
@@ -220,27 +222,28 @@ function probeTcp(address: string, timeoutMs = 3000): Promise<ProbeResult> {
  * WebSocket ретранслятора для веб-клиента: TLS на порту ретранслятора + 2.
  * Проверяем, что сертификат действителен для имени узла.
  */
-function probeTls(address: string, timeoutMs = 4000): Promise<ProbeResult> {
+export function probeTls(address: string, timeoutMs = 4000, portOffset = 2): Promise<ProbeResult> {
   const separator = address.lastIndexOf(':')
   const host = address.slice(0, separator)
-  const port = Number(address.slice(separator + 1)) + 2
+  const port = Number(address.slice(separator + 1)) + portOffset
   return import('node:tls').then(
     ({ connect }) =>
       new Promise((resolve) => {
         const started = Date.now()
         let settled = false
         const socket = connect({ host, port, servername: host, timeout: timeoutMs })
-        const done = (ok: boolean, detail: string) => {
+        const done = (ok: boolean, detail: string, daysLeft?: number) => {
           if (settled) return
           settled = true
           socket.destroy()
-          resolve({ ok, ms: Date.now() - started, detail })
+          resolve({ ok, ms: Date.now() - started, detail, ...(daysLeft === undefined ? {} : { daysLeft }) })
         }
         socket.once('secureConnect', () => {
           const validTo = socket.getPeerCertificate()?.valid_to
           const days = validTo ? Math.floor((new Date(validTo).getTime() - Date.now()) / 86_400_000) : NaN
           if (!socket.authorized) done(false, `сертификат не принят: ${socket.authorizationError}`)
-          else done(true, Number.isFinite(days) ? `сертификат ещё ${days} дн.` : 'сертификат в порядке')
+          else if (Number.isFinite(days)) done(true, `сертификат ещё ${days} дн.`, days)
+          else done(true, 'сертификат в порядке')
         })
         socket.once('timeout', () => done(false, `нет ответа за ${timeoutMs / 1000} с`))
         socket.once('error', (error) => done(false, error.message))

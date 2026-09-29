@@ -20,6 +20,7 @@ const COLUMNS = [
     links: [
       { href: '/podderzhka', label: 'База знаний' },
       { href: '/podderzhka#limit', label: 'Про лимит 3 часа' },
+      { href: '/status', label: 'Статус сервиса' },
       { href: config.brand.supportUrl, label: 'Написать в поддержку' },
       { href: `mailto:${config.brand.supportEmail}`, label: config.brand.supportEmail },
       { href: `mailto:${config.brand.salesEmail}`, label: `${config.brand.salesEmail} — счета и договоры` },

@@ -76,6 +76,9 @@ export const config = {
     /** Командные порты hbbs и hbbr (нужен свой образ с патчем server-cmd-hook). */
     hbbsCommand: env('REMIT_HBBS_CMD', 'rustdesk:21115'),
     hbbrCommand: env('REMIT_HBBR_CMD', 'rustdesk:21117'),
+    /** WebSocket hbbs и hbbr для веб-клиента (внутри сети; наружу — через nginx с TLS). */
+    hbbsWs: env('REMIT_HBBS_WS', 'rustdesk:21118'),
+    hbbrWs: env('REMIT_HBBR_WS', 'rustdesk:21119'),
   },
 
   /**
@@ -158,6 +161,25 @@ export const config = {
   notifications: {
     telegramBotToken: env('REMIT_TELEGRAM_BOT_TOKEN'),
     telegramChatId: env('REMIT_TELEGRAM_CHAT_ID'),
+    /** Для проверки без Telegram можно подменить адрес API. */
+    telegramApiUrl: env('REMIT_TELEGRAM_API_URL', 'https://api.telegram.org').replace(/\/+$/, ''),
+  },
+
+  /** Мониторинг, оповещения и страница статуса (docs/MONITORING.md). */
+  monitoring: {
+    /** Фоновые задачи внутри сайта: проверки, автопродление, сверка ретрансляторов. */
+    scheduler: env('REMIT_SCHEDULER', 'true') !== 'false',
+    /** Как часто проверять, секунды. */
+    intervalSeconds: envInt('REMIT_MONITOR_INTERVAL', 60),
+    /** Куда слать оповещения о сбоях; пусто — администраторам из REMIT_ADMIN_EMAILS. */
+    alertEmails: env('REMIT_ALERT_EMAILS')
+      .split(',')
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+    /** Чат для оповещений; пусто — тот же, что для заявок (REMIT_TELEGRAM_CHAT_ID). */
+    alertTelegramChatId: env('REMIT_ALERT_TELEGRAM_CHAT_ID'),
+    /** Предупреждать, когда до истечения сертификата осталось меньше, дней. */
+    certWarnDays: envInt('REMIT_CERT_WARN_DAYS', 14),
   },
 
   /** Пробный период для компаний. */

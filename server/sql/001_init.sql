@@ -352,3 +352,38 @@ CREATE TABLE IF NOT EXISTS web_shares (
 );
 
 CREATE INDEX IF NOT EXISTS web_shares_user_idx ON web_shares(user_id, created_at DESC);
+
+-- Мониторинг: суточная доступность проверок и компонентов страницы статуса.
+CREATE TABLE IF NOT EXISTS monitor_days (
+    key   TEXT NOT NULL,
+    day   TEXT NOT NULL,
+    ok    INTEGER NOT NULL DEFAULT 0,
+    total INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (key, day)
+);
+
+-- Смены состояния проверок (упала, восстановилась).
+CREATE TABLE IF NOT EXISTS monitor_events (
+    id       TEXT PRIMARY KEY,
+    check_id TEXT NOT NULL,
+    at       TIMESTAMPTZ NOT NULL,
+    status   TEXT NOT NULL,
+    detail   TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS monitor_events_at_idx ON monitor_events(at DESC);
+
+-- Инциденты и плановые работы на странице статуса.
+CREATE TABLE IF NOT EXISTS incidents (
+    id          TEXT PRIMARY KEY,
+    title       TEXT NOT NULL,
+    impact      TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    components  JSONB NOT NULL DEFAULT '[]'::jsonb,
+    auto        BOOLEAN NOT NULL DEFAULT false,
+    created_at  TIMESTAMPTZ NOT NULL,
+    resolved_at TIMESTAMPTZ,
+    starts_at   TIMESTAMPTZ,
+    ends_at     TIMESTAMPTZ,
+    updates     JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+CREATE INDEX IF NOT EXISTS incidents_open_idx ON incidents(created_at DESC) WHERE resolved_at IS NULL;

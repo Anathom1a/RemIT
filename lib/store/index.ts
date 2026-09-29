@@ -15,6 +15,9 @@ import type {
   Device,
   Lead,
   SupportTicket,
+  Incident,
+  MonitorDay,
+  MonitorEvent,
   Payment,
   Release,
   Subscription,
@@ -194,6 +197,22 @@ export interface Store {
   resetUsage(subjectKey: string, day: string): Promise<void>
   /** Суммарный расход за сутки: сколько времени и сколько плательщиков. */
   sumUsage(day: string): Promise<{ seconds: number; subjects: number }>
+
+  /** Проверка связи с хранилищем — для мониторинга и /api/health. */
+  ping(): Promise<void>
+  /** Прибавляет результаты проверок к суточной статистике. */
+  addMonitorSamples(samples: { key: string; day: string; ok: boolean }[]): Promise<void>
+  /** Прибавляет готовые счётчики (простой сайта, о котором сообщил сторож). */
+  addMonitorCounts(key: string, day: string, ok: number, total: number): Promise<void>
+  listMonitorDays(sinceDay: string): Promise<MonitorDay[]>
+  addMonitorEvent(event: MonitorEvent): Promise<void>
+  listMonitorEvents(limit: number): Promise<MonitorEvent[]>
+  saveIncident(incident: Incident): Promise<void>
+  findIncident(id: string): Promise<Incident | null>
+  /** Последние инциденты, новые сверху; открытые — всегда. */
+  listIncidents(limit: number): Promise<Incident[]>
+  /** Удаляет статистику и события старше указанных. */
+  purgeMonitor(beforeDay: string, beforeAt: string): Promise<void>
 
   /** Настройки, которые меняются в админке без перезапуска. */
   getSettings(): Promise<Record<string, string>>

@@ -20,6 +20,9 @@ import type {
   Device,
   Lead,
   SupportTicket,
+  Incident,
+  MonitorDay,
+  MonitorEvent,
   Payment,
   Release,
   Subscription,
@@ -27,7 +30,17 @@ import type {
   User,
 } from '../types'
 import type { PlanId } from '../plans'
-import type { PaymentKind, PaymentReceipt, PaymentStatus, SettlementState, SubscriptionStatus } from '../types'
+import type {
+  IncidentImpact,
+  IncidentStatus,
+  IncidentUpdate,
+  MonitorStatus,
+  PaymentKind,
+  PaymentReceipt,
+  PaymentStatus,
+  SettlementState,
+  SubscriptionStatus,
+} from '../types'
 
 type Row = Record<string, any>
 
@@ -1172,6 +1185,116 @@ export class PostgresStore implements Store {
       [day],
     )
     return { seconds: Number(rows[0]?.seconds ?? 0), subjects: Number(rows[0]?.subjects ?? 0) }
+  }
+
+  async ping(): Promise<void> {
+    await this.query('SELECT 1')
+  }
+
+  async addMonitorSamples(samples: { key: string; day: string; ok: boolean }[]): Promise<void> {
+    if (samples.length === 0) return
+    const values: unknown[] = []
+    const rows = samples.map((sample, index) => {
+      values.push(sample.key, sample.day, sample.ok ? 1 : 0)
+      return `($${index * 3 + 1}, $${index * 3 + 2}, $${index * 3 + 3}, 1)`
+    })
+    await this.query(
+      `INSERT INTO monitor_days (key, day, ok, total) VALUES ${rows.join(', ')}
+       ON CONFLICT (key, day) DO UPDATE SET ok = monitor_days.ok + EXCLUDED.ok, total = monitor_days.total + 1`,
+      values,
+    )
+  }
+
+  async addMonitorCounts(key: string, day: string, ok: number, total: number): Promise<void> {
+    await this.query(
+      `INSERT INTO monitor_days (key, day, ok, total) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (key, day) DO UPDATE SET ok = monitor_days.ok + EXCLUDED.ok, total = monitor_days.total + EXCLUDED.total`,
+      [key, day, ok, total],
+    )
+  }
+
+  async listMonitorDays(sinceDay: string): Promise<MonitorDay[]> {
+    const rows = await this.query('SELECT * FROM monitor_days WHERE day >= $1 ORDER BY day ASC', [sinceDay])
+    return rows.map((row) => ({ key: row.key, day: row.day, ok: row.ok, total: row.total }))
+  }
+
+  async addMonitorEvent(event: MonitorEvent): Promise<void> {
+    await this.query(
+      'INSERT INTO monitor_events (id, check_id, at, status, detail) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING',
+      [event.id, event.checkId, event.at, event.status, event.detail],
+    )
+  }
+
+  async listMonitorEvents(limit: number): Promise<MonitorEvent[]> {
+    const rows = await this.query('SELECT * FROM monitor_events ORDER BY at DESC LIMIT $1', [limit])
+    return rows.map((row) => ({
+      id: row.id,
+      checkId: row.check_id,
+      at: iso(row.at)!,
+      status: row.status as MonitorStatus,
+      detail: row.detail,
+    }))
+  }
+
+  async saveIncident(incident: Incident): Promise<void> {
+    await this.query(
+      `INSERT INTO incidents (id, title, impact, status, components, auto, created_at, resolved_at, starts_at, ends_at, updates)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO UPDATE SET
+         title = EXCLUDED.title, impact = EXCLUDED.impact, status = EXCLUDED.status,
+         components = EXCLUDED.components, resolved_at = EXCLUDED.resolved_at,
+         starts_at = EXCLUDED.starts_at, ends_at = EXCLUDED.ends_at, updates = EXCLUDED.updates`,
+      [
+        incident.id,
+        incident.title,
+        incident.impact,
+        incident.status,
+        JSON.stringify(incident.components),
+        incident.auto,
+        incident.createdAt,
+        incident.resolvedAt,
+        incident.startsAt,
+        incident.endsAt,
+        JSON.stringify(incident.updates),
+      ],
+    )
+  }
+
+  private toIncident(row: Row): Incident {
+    return {
+      id: row.id,
+      title: row.title,
+      impact: row.impact as IncidentImpact,
+      status: row.status as IncidentStatus,
+      components: (row.components ?? []) as string[],
+      auto: Boolean(row.auto),
+      createdAt: iso(row.created_at)!,
+      resolvedAt: iso(row.resolved_at ?? null),
+      startsAt: iso(row.starts_at ?? null),
+      endsAt: iso(row.ends_at ?? null),
+      updates: ((row.updates ?? []) as IncidentUpdate[]).map((update) => ({ ...update })),
+    }
+  }
+
+  async findIncident(id: string): Promise<Incident | null> {
+    const rows = await this.query('SELECT * FROM incidents WHERE id = $1', [id])
+    return rows[0] ? this.toIncident(rows[0]) : null
+  }
+
+  async listIncidents(limit: number): Promise<Incident[]> {
+    const rows = await this.query(
+      `(SELECT * FROM incidents WHERE resolved_at IS NULL)
+       UNION ALL
+       (SELECT * FROM incidents WHERE resolved_at IS NOT NULL ORDER BY created_at DESC LIMIT $1)
+       ORDER BY created_at DESC`,
+      [limit],
+    )
+    return rows.map((row) => this.toIncident(row))
+  }
+
+  async purgeMonitor(beforeDay: string, beforeAt: string): Promise<void> {
+    await this.query('DELETE FROM monitor_days WHERE day < $1', [beforeDay])
+    await this.query('DELETE FROM monitor_events WHERE at < $1', [beforeAt])
   }
 
   async getSettings(): Promise<Record<string, string>> {

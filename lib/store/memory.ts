@@ -4,6 +4,9 @@ import { normalizePayment, normalizeSubscription } from '../billing-model'
 import type { Store } from './index'
 import type {
   ClientAlarm,
+  Incident,
+  MonitorDay,
+  MonitorEvent,
   DeviceGroup,
   OAuthIdentity,
   OAuthState,
@@ -39,6 +42,9 @@ interface Snapshot {
   teamMembers: TeamMember[]
   deviceGroups: DeviceGroup[]
   alarms: ClientAlarm[]
+  monitorDays: MonitorDay[]
+  monitorEvents: MonitorEvent[]
+  incidents: Incident[]
   webShares: WebShare[]
   devices: Device[]
   subscriptions: Subscription[]
@@ -74,6 +80,9 @@ export class MemoryStore implements Store {
   private teamMembers: TeamMember[] = []
   private deviceGroups = new Map<string, DeviceGroup>()
   private alarms: ClientAlarm[] = []
+  private monitorDays = new Map<string, MonitorDay>()
+  private monitorEvents: MonitorEvent[] = []
+  private incidents = new Map<string, Incident>()
   private webShares = new Map<string, WebShare>()
   private devices = new Map<string, Device>()
   private subscriptions = new Map<string, Subscription>()
@@ -117,6 +126,9 @@ export class MemoryStore implements Store {
       this.teamMembers = snapshot.teamMembers ?? []
       this.deviceGroups = new Map(snapshot.deviceGroups?.map((g) => [g.id, g]))
       this.alarms = snapshot.alarms ?? []
+      this.monitorDays = new Map(snapshot.monitorDays?.map((d) => [`${d.key}|${d.day}`, d]))
+      this.monitorEvents = snapshot.monitorEvents ?? []
+      this.incidents = new Map(snapshot.incidents?.map((i) => [i.id, i]))
       this.webShares = new Map(snapshot.webShares?.map((w) => [w.token, w]))
       this.devices = new Map(snapshot.devices?.map((d) => [d.rustdeskId, d]))
       // Поля повышения тарифа, автопродления и чеков появились позже:
@@ -152,6 +164,9 @@ export class MemoryStore implements Store {
       teamMembers: this.teamMembers,
       deviceGroups: [...this.deviceGroups.values()],
       alarms: this.alarms,
+      monitorDays: [...this.monitorDays.values()],
+      monitorEvents: this.monitorEvents,
+      incidents: [...this.incidents.values()],
       webShares: [...this.webShares.values()],
       devices: [...this.devices.values()],
       subscriptions: [...this.subscriptions.values()],
@@ -916,6 +931,69 @@ export class MemoryStore implements Store {
     await this.sync()
     const rows = [...this.usage.values()].filter((u) => u.day === day)
     return { seconds: rows.reduce((total, row) => total + row.seconds, 0), subjects: rows.length }
+  }
+
+  async ping(): Promise<void> {
+    await this.sync()
+  }
+
+  async addMonitorSamples(samples: { key: string; day: string; ok: boolean }[]): Promise<void> {
+    await this.sync()
+    for (const sample of samples) {
+      const id = `${sample.key}|${sample.day}`
+      const current = this.monitorDays.get(id) ?? { key: sample.key, day: sample.day, ok: 0, total: 0 }
+      this.monitorDays.set(id, { ...current, ok: current.ok + (sample.ok ? 1 : 0), total: current.total + 1 })
+    }
+    await this.persist()
+  }
+
+  async addMonitorCounts(key: string, day: string, ok: number, total: number): Promise<void> {
+    await this.sync()
+    const id = `${key}|${day}`
+    const current = this.monitorDays.get(id) ?? { key, day, ok: 0, total: 0 }
+    this.monitorDays.set(id, { ...current, ok: current.ok + ok, total: current.total + total })
+    await this.persist()
+  }
+
+  async listMonitorDays(sinceDay: string): Promise<MonitorDay[]> {
+    await this.sync()
+    return [...this.monitorDays.values()].filter((d) => d.day >= sinceDay).sort((a, b) => a.day.localeCompare(b.day))
+  }
+
+  async addMonitorEvent(event: MonitorEvent): Promise<void> {
+    await this.sync()
+    this.monitorEvents.push(event)
+    await this.persist()
+  }
+
+  async listMonitorEvents(limit: number): Promise<MonitorEvent[]> {
+    await this.sync()
+    return [...this.monitorEvents].sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit)
+  }
+
+  async saveIncident(incident: Incident): Promise<void> {
+    await this.sync()
+    this.incidents.set(incident.id, incident)
+    await this.persist()
+  }
+
+  async findIncident(id: string): Promise<Incident | null> {
+    await this.sync()
+    return this.incidents.get(id) ?? null
+  }
+
+  async listIncidents(limit: number): Promise<Incident[]> {
+    await this.sync()
+    const all = [...this.incidents.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    const open = all.filter((i) => !i.resolvedAt)
+    return [...open, ...all.filter((i) => i.resolvedAt).slice(0, Math.max(0, limit - open.length))]
+  }
+
+  async purgeMonitor(beforeDay: string, beforeAt: string): Promise<void> {
+    await this.sync()
+    for (const [id, day] of this.monitorDays) if (day.day < beforeDay) this.monitorDays.delete(id)
+    this.monitorEvents = this.monitorEvents.filter((e) => e.at >= beforeAt)
+    await this.persist()
   }
 
   async getSettings(): Promise<Record<string, string>> {

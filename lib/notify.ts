@@ -5,12 +5,13 @@ import { config } from './config'
  * надёжный канал — телеграм-бот: он уже используется для поддержки.
  * Если бот не настроен, функция просто ничего не делает.
  */
-export async function notifyTelegram(text: string): Promise<boolean> {
-  const { telegramBotToken, telegramChatId } = config.notifications
+export async function notifyTelegram(text: string, chatId?: string): Promise<boolean> {
+  const { telegramBotToken } = config.notifications
+  const telegramChatId = chatId || config.notifications.telegramChatId
   if (!telegramBotToken || !telegramChatId) return false
 
   try {
-    const response = await fetch(`https://api.telegram.org/bot${telegramBotToken}/sendMessage`, {
+    const response = await fetch(`${config.notifications.telegramApiUrl}/bot${telegramBotToken}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

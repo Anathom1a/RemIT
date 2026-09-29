@@ -5,6 +5,7 @@ import { LogoutButton } from '@/components/cabinet/logout-button'
 import { getCurrentUser } from '@/lib/auth'
 import { isAdmin } from '@/lib/admin'
 import { getRuntimeSettings } from '@/lib/settings'
+import { cabinetNotice } from '@/lib/status'
 
 const NAV = [
   { href: '/kabinet', label: 'Обзор' },
@@ -21,7 +22,7 @@ const NAV = [
 export default async function CabinetLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser()
   if (!user) redirect('/vhod')
-  const settings = await getRuntimeSettings()
+  const [settings, notice] = await Promise.all([getRuntimeSettings(), cabinetNotice()])
 
   return (
     <div className="min-h-screen">
@@ -54,6 +55,17 @@ export default async function CabinetLayout({ children }: { children: React.Reac
             </Link>
           ))}
         </nav>
+
+        {notice && (
+          <a
+            href="/status"
+            className={`mb-6 block rounded-2xl border px-5 py-4 text-sm leading-relaxed text-text-secondary ${
+              notice.tone === 'warning' ? 'border-warning/30 bg-warning/5' : 'border-brand-500/30 bg-brand-500/5'
+            }`}
+          >
+            {notice.text} <span className="text-brand-400 underline decoration-dotted">Статус сервиса</span>
+          </a>
+        )}
 
         {settings.maintenanceMessage && (
           <div className="mb-6 rounded-2xl border border-warning/30 bg-warning/5 px-5 py-4 text-sm leading-relaxed text-text-secondary">

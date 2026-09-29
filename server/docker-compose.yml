@@ -118,6 +118,9 @@ services:
       - REMIT_TRIAL_PLAN=${REMIT_TRIAL_PLAN:-pro}
       - REMIT_TELEGRAM_BOT_TOKEN=${REMIT_TELEGRAM_BOT_TOKEN:-}
       - REMIT_TELEGRAM_CHAT_ID=${REMIT_TELEGRAM_CHAT_ID:-}
+      # Мониторинг: куда слать оповещения о сбоях (пусто — администраторам и в тот же чат).
+      - REMIT_ALERT_EMAILS=${REMIT_ALERT_EMAILS:-}
+      - REMIT_ALERT_TELEGRAM_CHAT_ID=${REMIT_ALERT_TELEGRAM_CHAT_ID:-}
       - REMIT_BILLING_PROVIDER=${REMIT_BILLING_PROVIDER:-yookassa}
       - YOOKASSA_SHOP_ID=${YOOKASSA_SHOP_ID:-}
       - YOOKASSA_SECRET_KEY=${YOOKASSA_SECRET_KEY:-}
@@ -127,6 +130,23 @@ services:
       - YOOKASSA_VAT_CODE=${YOOKASSA_VAT_CODE:-1}
       - YOOKASSA_TAX_SYSTEM_CODE=${YOOKASSA_TAX_SYSTEM_CODE:-0}
       - YOOKASSA_RECEIPT_MODE=${YOOKASSA_RECEIPT_MODE:-prepayment}
+    restart: unless-stopped
+
+  # Сторож: следит за сайтом со стороны и шлёт тревогу в Telegram, если тот
+  # перестал отвечать (server/monitor/watchdog.sh, docs/MONITORING.md).
+  watchdog:
+    image: curlimages/curl:8.10.1
+    container_name: remit-watchdog
+    depends_on:
+      - web
+    entrypoint: ['/bin/sh', '/watchdog.sh']
+    volumes:
+      - ./monitor/watchdog.sh:/watchdog.sh:ro
+    environment:
+      - SERVICE_TOKEN=${REMIT_SERVICE_TOKEN}
+      - TELEGRAM_BOT_TOKEN=${REMIT_TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${REMIT_ALERT_TELEGRAM_CHAT_ID:-${REMIT_TELEGRAM_CHAT_ID:-}}
+      - TZ=Europe/Moscow
     restart: unless-stopped
 
   nginx:
